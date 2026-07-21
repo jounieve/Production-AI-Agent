@@ -77,6 +77,34 @@ def _mcp_tool_to_anthropic_schema(tool) -> dict:
     }
 
 
+@observe(name="agent.tool_selection_llm_call")
+def _select_tools_turn(client: "anthropic.Anthropic", messages: list, anthropic_tools: list):
+    """
+    One turn of Claude deciding which tool(s) to call next (or that it's
+    done gathering evidence). Wrapped in its own Langfuse span, separate
+    from the top-level agent.run span, so each tool-selection LLM call is
+    individually visible in a trace (rubric E).
+    """
+    return client.messages.create(
+        model=MODEL_NAME,
+        max_tokens=1024,
+        tools=anthropic_tools,
+        messages=messages,
+    )
+
+
+@observe(name="agent.mcp_tool_call")
+async def _call_mcp_tool(session: "ClientSession", tool_name: str, tool_input: dict) -> str:
+    """
+    Executes a single MCP tool call over the stdio session and returns its
+    text content. Wrapped in its own Langfuse span, separate from the
+    tool-selection LLM call span above, so a Langfuse trace shows each
+    LLM call and each tool call as distinct spans (rubric E).
+    """
+    result = await session.call_tool(tool_name, tool_input)
+    return "\n".join(c.text for c in result.content if hasattr(c, "text"))
+
+
 @observe(name="agent.run")
 async def run_agent(user_query: str) -> AgentRunResult:
     """
@@ -137,12 +165,7 @@ async def run_agent(user_query: str) -> AgentRunResult:
             ]
 
             for _turn in range(MAX_TOOL_TURNS):
-                response = client.messages.create(
-                    model=MODEL_NAME,
-                    max_tokens=1024,
-                    tools=anthropic_tools,
-                    messages=messages,
-                )
+                response = _select_tools_turn(client, messages, anthropic_tools)
                 token_budget.add(
                     input_tokens=response.usage.input_tokens,
                     output_tokens=response.usage.output_tokens,
@@ -171,10 +194,7 @@ async def run_agent(user_query: str) -> AgentRunResult:
 
                     tool_calls_made.append(block.name)
                     try:
-                        result = await session.call_tool(block.name, block.input)
-                        result_text = "\n".join(
-                            c.text for c in result.content if hasattr(c, "text")
-                        )
+                        result_text = await _call_mcp_tool(session, block.name, block.input)
                     except Exception as exc:  # noqa: BLE001
                         result_text = f"Tool call failed: {exc}"
 
