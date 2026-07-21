@@ -1,0 +1,70 @@
+{
+  "cities": [
+    {
+      "name": "Lyon",
+      "country": "France",
+      "population": 522000,
+      "housing_vacancy_rate": 0.048,
+      "job_growth_rate_yoy": 0.021,
+      "industry_diversity_index": 0.71,
+      "school_capacity_utilization": 0.88,
+      "healthcare_beds_per_1000": 6.2,
+      "public_transit_coverage_index": 0.82
+    },
+    {
+      "name": "Marseille",
+      "country": "France",
+      "population": 870000,
+      "housing_vacancy_rate": 0.061,
+      "job_growth_rate_yoy": 0.012,
+      "industry_diversity_index": 0.58,
+      "school_capacity_utilization": 0.93,
+      "healthcare_beds_per_1000": 5.4,
+      "public_transit_coverage_index": 0.64
+    },
+    {
+      "name": "Toulouse",
+      "country": "France",
+      "population": 493000,
+      "housing_vacancy_rate": 0.039,
+      "job_growth_rate_yoy": 0.034,
+      "industry_diversity_index": 0.52,
+      "school_capacity_utilization": 0.90,
+      "healthcare_beds_per_1000": 5.9,
+      "public_transit_coverage_index": 0.70
+    },
+    {
+      "name": "Nantes",
+      "country": "France",
+      "population": 320000,
+      "housing_vacancy_rate": 0.055,
+      "job_growth_rate_yoy": 0.028,
+      "industry_diversity_index": 0.63,
+      "school_capacity_utilization": 0.85,
+      "healthcare_beds_per_1000": 6.7,
+      "public_transit_coverage_index": 0.75
+    },
+    {
+      "name": "Lille",
+      "country": "France",
+      "population": 234000,
+      "housing_vacancy_rate": 0.072,
+      "job_growth_rate_yoy": 0.009,
+      "industry_diversity_index": 0.55,
+      "school_capacity_utilization": 0.81,
+      "healthcare_beds_per_1000": 7.1,
+      "public_transit_coverage_index": 0.78
+    },
+    {
+      "name": "Strasbourg",
+      "country": "France",
+      "population": 291000,
+      "housing_vacancy_rate": 0.044,
+      "job_growth_rate_yoy": 0.019,
+      "industry_diversity_index": 0.60,
+      "school_capacity_utilization": 0.87,
+      "healthcare_beds_per_1000": 6.0,
+      "public_transit_coverage_index": 0.73
+    }
+  ]
+}

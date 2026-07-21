@@ -1,0 +1,27 @@
+# --- Retrieval (retrieval.py) ---
+rank-bm25==0.2.2
+sentence-transformers==3.0.1
+numpy==1.26.4
+
+# --- LLM + agent orchestration (agent.py, reasoning.py) ---
+anthropic==0.34.2
+
+# --- MCP server (mcp_server.py) ---
+mcp==1.2.0
+
+# --- Observability (all src/ modules) ---
+langfuse==2.53.9
+
+# --- Evaluation (eval/ragas_eval.py) ---
+ragas==0.1.16
+datasets==2.20.0
+langchain==0.2.14
+langchain-core==0.2.38
+langchain-anthropic==0.1.23
+langchain-huggingface==0.0.3
+
+# --- Testing (tests/test_security.py) ---
+pytest==8.3.2
+
+# --- Utilities ---
+python-dotenv==1.0.1

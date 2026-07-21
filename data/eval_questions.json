@@ -1,0 +1,64 @@
+{
+  "questions": [
+    {
+      "id": "q01",
+      "question": "What housing vacancy rate is generally considered a tight housing market for receiving cities?",
+      "ground_truth": "A vacancy rate below 3% is generally considered a tight housing market, meaning cities in this range absorb new arrivals slowly and see rapid rent increases when migration spikes."
+    },
+    {
+      "id": "q02",
+      "question": "Why do social networks matter for migration destination choice?",
+      "ground_truth": "Social networks matter because migrants disproportionately move to cities where family members or people from their home region have already settled, since these networks lower the cost of arrival through housing leads, job referrals, and language support."
+    },
+    {
+      "id": "q03",
+      "question": "What are the three most commonly used proxies for a city's public services absorption capacity?",
+      "ground_truth": "School enrollment capacity, healthcare system bed availability per capita, and public transit coverage are the three most commonly used proxies for public service absorption capacity."
+    },
+    {
+      "id": "q04",
+      "question": "How should housing and labor market capacity be weighted relative to public services in a composite capacity index?",
+      "ground_truth": "Housing and labor market capacity should be weighted more heavily than public services, since housing and jobs determine whether migration is sustained, while public services determine the quality of integration once migration has already occurred."
+    },
+    {
+      "id": "q05",
+      "question": "What is a migration corridor?",
+      "ground_truth": "A migration corridor describes the typical path taken by displaced populations from an origin region to one or more receiving cities, shaped by pre-existing transport infrastructure, historical migration patterns, and language or cultural proximity."
+    },
+    {
+      "id": "q06",
+      "question": "What early warning indicators can analysts use to detect an emerging migration corridor?",
+      "ground_truth": "Analysts look for rising informal settlement growth at the urban periphery, increased remittance flows back to the origin region, and rising demand for day-labor and informal-sector work in the receiving city."
+    },
+    {
+      "id": "q07",
+      "question": "What data can be combined to build climate migration early warning systems?",
+      "ground_truth": "Crop failure data, drought indices, and flood frequency in an origin region can be combined with historical migration response lag to build early warning systems, ideally paired with receiving-city capacity data."
+    },
+    {
+      "id": "q08",
+      "question": "What policy responses lead to better integration outcomes for cities facing climate migration?",
+      "ground_truth": "Cities that plan proactively — pre-zoning land for rapid housing expansion, building modular school capacity, and establishing simplified registration processes for new arrivals — show measurably better integration outcomes than cities that respond reactively."
+    },
+    {
+      "id": "q09",
+      "question": "What happens when a city has strong pull factors but weak absorption capacity?",
+      "ground_truth": "A city with strong pull factors like jobs and existing diaspora networks but weak absorption capacity, such as a housing shortage or overloaded schools, can experience rapid in-migration followed by acute strain on infrastructure."
+    },
+    {
+      "id": "q10",
+      "question": "What are the main economic push factors driving migration?",
+      "ground_truth": "Economic push factors include chronic unemployment, wage stagnation, and the collapse of local industries."
+    },
+    {
+      "id": "q11",
+      "question": "Why is climate-related displacement considered an increasingly dominant push factor?",
+      "ground_truth": "Prolonged drought, repeated flooding, and sea-level rise in coastal regions destroy agricultural livelihoods and force households to seek income elsewhere, making climate displacement an increasingly dominant push factor."
+    },
+    {
+      "id": "q12",
+      "question": "Why does climate displacement increasingly funnel into urban areas rather than other rural regions?",
+      "ground_truth": "Climate displacement funnels into cities because urban areas offer wage labor opportunities that rural areas hit by the same climate shock generally cannot provide."
+    }
+  ]
+}
