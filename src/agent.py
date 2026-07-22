@@ -53,8 +53,24 @@ from reasoning import critic_review, self_consistency_synthesis
 
 AGENT_VERSION = "1.0.0"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2:latest")
+_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+if _OPENAI_API_KEY and not _OPENAI_API_KEY.startswith("sk-..."):
+    # Real OpenAI key present — use a dedicated OPENAI_MODEL var so that
+    # LLM_MODEL=llama3.2:latest (Ollama default) does not bleed in.
+    MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    _LLM_BASE_URL = None          # use OpenAI default endpoint
+    _LLM_API_KEY  = _OPENAI_API_KEY
+else:
+    # Fall back to local Ollama
+    MODEL_NAME    = os.getenv("LLM_MODEL", "llama3.2:latest")
+    _LLM_BASE_URL = OLLAMA_BASE_URL
+    _LLM_API_KEY  = "ollama"
+
 MAX_TOOL_TURNS = 6  # hard ceiling on tool-calling turns per query, independent of TokenBudget
+
+_provider = "OpenAI" if (_OPENAI_API_KEY and not _OPENAI_API_KEY.startswith("sk-...")) else "Ollama"
+print(f"[agent] Provider: {_provider} | Model: {MODEL_NAME}")
 
 _MCP_SERVER_PATH = str(Path(__file__).resolve().parent / "mcp_server.py")
 
@@ -111,7 +127,7 @@ async def _call_mcp_tool(session: "ClientSession", tool_name: str, tool_input: d
 
 
 @observe(name="agent.run")
-async def run_agent(user_query: str) -> AgentRunResult:
+async def run_agent(user_query: str, progress_callback=None) -> AgentRunResult:
     """
     Entry point. Runs the full pipeline for a single user query and
     returns a structured AgentRunResult. Never raises for expected
@@ -126,10 +142,16 @@ async def run_agent(user_query: str) -> AgentRunResult:
 
     token_budget = TokenBudget(max_tokens=60_000)
     action_gate = ActionGate()
-    client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
+    client = OpenAI(api_key=_LLM_API_KEY, base_url=_LLM_BASE_URL)
 
     # --- L1: input filtering ---
     l1_result = l1_input_filter(user_query)
+    if progress_callback:
+        progress_callback("l1_input", {
+            "verdict": "BLOCKED" if not l1_result.allowed else "ALLOWED",
+            "reasons": l1_result.reasons,
+            "normalized": l1_result.normalized_query,
+        })
     if not l1_result.allowed:
         return AgentRunResult(
             query=user_query,
@@ -154,18 +176,21 @@ async def run_agent(user_query: str) -> AgentRunResult:
 
             mcp_tools = await session.list_tools()
             openai_tools = [_mcp_tool_to_openai_schema(t) for t in mcp_tools.tools]
+            if progress_callback:
+                progress_callback("mcp_ready", {"tools": [t.name for t in mcp_tools.tools]})
 
             messages = [
                 {
                     "role": "system",
                     "content": (
                         "You are an urban migration research agent with three tools.\n\n"
-                        "MANDATORY TOOL SEQUENCE for city-capacity questions:\n"
-                        "Step 1 — call get_city_capacity_profile with the city name to retrieve numeric indicators.\n"
-                        "Step 2 — call search_migration_evidence for qualitative research context.\n"
+                        "MANDATORY TOOL SEQUENCE — follow this on EVERY question:\n"
+                        "Step 1 — call get_city_capacity_profile for EACH city mentioned in the question.\n"
+                        "Step 2 — call search_migration_evidence to retrieve research thresholds and qualitative context. "
+                        "This step is REQUIRED on every question without exception — it provides the evidence needed to interpret the numeric data.\n"
                         "Step 3 — if an origin region is mentioned, call compute_push_pull_index.\n\n"
-                        "You MUST call at least two tools before writing any answer. "
-                        "Never skip get_city_capacity_profile when a city is named in the question."
+                        "You MUST call search_migration_evidence before synthesising any answer. "
+                        "Never skip it — without it you have no basis to interpret the numeric indicators."
                     ),
                 },
                 {
@@ -206,6 +231,8 @@ async def run_agent(user_query: str) -> AgentRunResult:
                 for tc in tool_call_list:
                     gate_result = action_gate.check(tc.function.name)
                     if not gate_result.allowed:
+                        if progress_callback:
+                            progress_callback("l4_blocked", {"tool": tc.function.name, "reason": gate_result.reason})
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.id,
@@ -220,12 +247,21 @@ async def run_agent(user_query: str) -> AgentRunResult:
                             if isinstance(tc.function.arguments, str)
                             else tc.function.arguments
                         )
+                        if progress_callback:
+                            progress_callback("tool_call", {"tool": tc.function.name, "args": tool_input})
                         result_text = await _call_mcp_tool(session, tc.function.name, tool_input)
                     except Exception as exc:  # noqa: BLE001
                         result_text = f"Tool call failed: {exc}"
 
                     # L1 filtering on retrieved content (indirect injection defence)
                     safe_text = l1_filter_retrieved_context([result_text])
+                    filtered = len(safe_text) == 0
+                    if progress_callback:
+                        progress_callback("tool_result", {
+                            "tool": tc.function.name,
+                            "preview": result_text[:300],
+                            "filtered": filtered,
+                        })
                     if safe_text:
                         collected_texts.append(safe_text[0])
                         collected_sources.append(tc.function.name)
@@ -250,8 +286,23 @@ async def run_agent(user_query: str) -> AgentRunResult:
         )
 
     # --- Reasoning: self-consistency synthesis + critic (second agent role) ---
+    if progress_callback:
+        progress_callback("synthesis_start", {"k": 3, "chunks": len(collected_texts)})
     synthesis = self_consistency_synthesis(query, collected_texts, collected_sources, token_budget)
+    if progress_callback:
+        for i, c in enumerate(synthesis.all_candidates):
+            progress_callback("synthesis_candidate", {
+                "k": i + 1,
+                "confidence": c.confidence,
+                "conclusion": c.conclusion[:200],
+            })
+        progress_callback("synthesis_winner", {
+            "confidence": synthesis.winning_candidate.confidence,
+            "agreement": synthesis.agreement_ratio,
+        })
     verdict = critic_review(query, collected_texts, collected_sources, synthesis.winning_candidate, token_budget)
+    if progress_callback:
+        progress_callback("critic", {"verdict": verdict.verdict, "justification": verdict.justification})
 
     return AgentRunResult(
         query=user_query,
@@ -267,7 +318,10 @@ async def run_agent(user_query: str) -> AgentRunResult:
 
 def main():
     # modifier temporairement agent.py ligne 268
-    demo_query = "Can Lyon absorb 10,000 economic migrants from North Africa in 2025?"
+    demo_query = (
+        "Is Nantes a more suitable receiving city than Lyon for climate migrants "
+        "from West Africa, given its housing vacancy rate and school capacity utilization?"
+    )
     result = asyncio.run(run_agent(demo_query))
 
     print("=" * 70)

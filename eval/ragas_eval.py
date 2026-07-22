@@ -20,8 +20,8 @@ This isolates which techniques caused which RAGAS metric changes:
 Run with:
     python eval/ragas_eval.py
 
-Requires ANTHROPIC_API_KEY in .env (used both as the agent's answer
-generator and, via ChatAnthropic, as RAGAS's judge LLM).
+Requires OPENAI_API_KEY in .env (used both as the agent's answer
+generator and, via ChatOpenAI, as RAGAS's judge LLM).
 
 Outputs eval/ragas_results.json with the full baseline vs final table,
 plus a printed summary matching the REPORT.md section 3 table format.
@@ -34,11 +34,11 @@ import sys
 import time
 from pathlib import Path
 
-import anthropic
 from datasets import Dataset
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
+from openai import OpenAI
 from ragas import evaluate
 from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
 
@@ -55,7 +55,7 @@ _QUESTIONS_PATH = _DATA_DIR / "eval_questions.json"
 _CORPUS_DIR = _DATA_DIR / "corpus"
 _OUTPUT_PATH = Path(__file__).resolve().parent / "ragas_results.json"
 
-_client = anthropic.Anthropic()
+_client = OpenAI()
 
 
 def _load_questions() -> list[dict]:
@@ -70,8 +70,8 @@ def _baseline_answer(question: str, contexts: list[str]) -> str:
     generation strategy, paired with basic_retrieval() context.
     """
     context_block = "\n\n".join(contexts)
-    response = _client.messages.create(
-        model="claude-sonnet-4-5",
+    response = _client.chat.completions.create(
+        model="gpt-4o-mini",
         max_tokens=300,
         messages=[
             {
@@ -83,7 +83,7 @@ def _baseline_answer(question: str, contexts: list[str]) -> str:
             }
         ],
     )
-    return response.content[0].text
+    return response.choices[0].message.content or ""
 
 
 def _run_pipeline(questions: list[dict], retriever: HybridRetriever, mode: str) -> Dataset:
@@ -121,7 +121,7 @@ def main():
     questions = _load_questions()
     print(f"Loaded {len(questions)} evaluation questions.\n")
 
-    judge_llm = ChatAnthropic(model="claude-sonnet-4-5", temperature=0)
+    judge_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     judge_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     metrics = [context_recall, context_precision, faithfulness, answer_relevancy]
 

@@ -43,10 +43,16 @@ from guardrails import TokenBudget
 load_dotenv()
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2:latest")
-SELF_CONSISTENCY_K = 3
+_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-_client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
+if _OPENAI_API_KEY and not _OPENAI_API_KEY.startswith("sk-..."):
+    MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    _client = OpenAI(api_key=_OPENAI_API_KEY)
+else:
+    MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2:latest")
+    _client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
+
+SELF_CONSISTENCY_K = 3
 
 
 # --------------------------------------------------------------------------
@@ -230,7 +236,7 @@ def _cluster_by_conclusion_similarity(candidates: list[SynthesisCandidate]) -> l
             union = keyword_sets[i] | keyword_sets[j]
             overlap = keyword_sets[i] & keyword_sets[j]
             similarity = len(overlap) / len(union) if union else 0.0
-            if similarity >= 0.4:
+            if similarity >= 0.25:
                 cluster.append(j)
                 assigned[j] = True
         clusters.append(cluster)
@@ -290,11 +296,20 @@ retrieved, and a candidate answer produced by a separate synthesis
 agent. Your job is NOT to re-answer the question. Your job is to check
 the candidate answer for two failure modes:
 
-1. Hallucination — does the CONCLUSION or EVIDENCE section state
-   anything as fact that is not actually supported by the provided
-   context?
-2. Overconfidence — is the stated CONFIDENCE reasonable given how much
-   (or how little) directly relevant evidence was provided?
+1. Hallucination — does the CONCLUSION or EVIDENCE section state a
+   specific fact (a number, a causal claim, a named statistic) that
+   does NOT appear anywhere in the provided context? Minor phrasing
+   differences or reasonable numerical inferences (e.g. "approaching
+   90% threshold" for a value of 88%) are NOT hallucinations.
+2. Overconfidence — is the stated CONFIDENCE above 0.9 when the
+   retrieved context is thin or indirect? A confidence of 0.7–0.9
+   backed by city-profile data and relevant corpus passages is
+   acceptable; do NOT flag it unless the evidence is clearly
+   insufficient for the claim.
+
+Default to APPROVED. Only use REJECTED if you can cite a specific
+sentence in the CONCLUSION that directly contradicts or is completely
+absent from the provided context.
 
 Respond in EXACTLY this format:
 
