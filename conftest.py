@@ -18,3 +18,10 @@ from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent / "src"
 sys.path.insert(0, str(SRC_DIR))
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "slow: marks tests that load ML models (deselect with -m 'not slow')",
+    )

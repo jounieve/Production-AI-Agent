@@ -27,7 +27,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 try:
@@ -40,12 +40,13 @@ except ImportError:  # pragma: no cover
 
 from guardrails import TokenBudget
 
-load_dotenv()  # loads ANTHROPIC_API_KEY, LANGFUSE_* from .env into os.environ
+load_dotenv()
 
-MODEL_NAME = "claude-sonnet-4-5"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2:latest")
 SELF_CONSISTENCY_K = 3
 
-_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+_client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
 
 
 # --------------------------------------------------------------------------
@@ -152,7 +153,10 @@ def _parse_structured_response(text: str) -> SynthesisCandidate:
     """Extracts the four required sections from a model response."""
 
     def _extract(section: str, next_sections: list[str]) -> str:
-        pattern = rf"{section}:\s*(.*?)(?=" + "|".join(f"{s}:" for s in next_sections) + r"|$)"
+        if next_sections:
+            pattern = rf"{section}:\s*(.*?)(?=" + "|".join(f"{s}:" for s in next_sections) + r")"
+        else:
+            pattern = rf"{section}:\s*(.*)"
         match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         return match.group(1).strip() if match else ""
 
@@ -176,18 +180,21 @@ def _parse_structured_response(text: str) -> SynthesisCandidate:
 
 @observe(name="reasoning.llm_call")
 def _call_llm(system_prompt: str, user_prompt: str, token_budget: TokenBudget, label: str) -> str:
-    response = _client.messages.create(
+    response = _client.chat.completions.create(
         model=MODEL_NAME,
         max_tokens=1000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
     )
+    usage = response.usage
     token_budget.add(
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+        input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        output_tokens=getattr(usage, "completion_tokens", 0) or 0,
         label=label,
     )
-    return response.content[0].text
+    return response.choices[0].message.content or ""
 
 
 def _build_context_block(context_chunks: list[str], sources: list[str]) -> str:

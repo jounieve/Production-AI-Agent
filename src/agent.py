@@ -19,16 +19,18 @@ exercised end-to-end, not just present as unused code.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-load_dotenv()  # loads ANTHROPIC_API_KEY, LANGFUSE_* from .env into os.environ
+load_dotenv()
 
 try:
     from langfuse.decorators import observe, langfuse_context
@@ -50,7 +52,8 @@ from guardrails import ActionGate, TokenBudget, l1_filter_retrieved_context, l1_
 from reasoning import critic_review, self_consistency_synthesis
 
 AGENT_VERSION = "1.0.0"
-MODEL_NAME = "claude-sonnet-4-5"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2:latest")
 MAX_TOOL_TURNS = 6  # hard ceiling on tool-calling turns per query, independent of TokenBudget
 
 _MCP_SERVER_PATH = str(Path(__file__).resolve().parent / "mcp_server.py")
@@ -69,26 +72,28 @@ class AgentRunResult:
     blocked_reason: str | None = None
 
 
-def _mcp_tool_to_anthropic_schema(tool) -> dict:
+def _mcp_tool_to_openai_schema(tool) -> dict:
     return {
-        "name": tool.name,
-        "description": tool.description or "",
-        "input_schema": tool.inputSchema,
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description or "",
+            "parameters": tool.inputSchema,
+        },
     }
 
 
 @observe(name="agent.tool_selection_llm_call")
-def _select_tools_turn(client: "anthropic.Anthropic", messages: list, anthropic_tools: list):
+def _select_tools_turn(client: "OpenAI", messages: list, openai_tools: list):
     """
-    One turn of Claude deciding which tool(s) to call next (or that it's
-    done gathering evidence). Wrapped in its own Langfuse span, separate
-    from the top-level agent.run span, so each tool-selection LLM call is
-    individually visible in a trace (rubric E).
+    One turn of the model deciding which tool(s) to call next (or that
+    it's done gathering evidence). Wrapped in its own Langfuse span so
+    each tool-selection LLM call is individually visible in a trace.
     """
-    return client.messages.create(
+    return client.chat.completions.create(
         model=MODEL_NAME,
         max_tokens=1024,
-        tools=anthropic_tools,
+        tools=openai_tools,
         messages=messages,
     )
 
@@ -121,7 +126,7 @@ async def run_agent(user_query: str) -> AgentRunResult:
 
     token_budget = TokenBudget(max_tokens=60_000)
     action_gate = ActionGate()
-    client = anthropic.Anthropic()
+    client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
 
     # --- L1: input filtering ---
     l1_result = l1_input_filter(user_query)
@@ -148,73 +153,88 @@ async def run_agent(user_query: str) -> AgentRunResult:
             await session.initialize()
 
             mcp_tools = await session.list_tools()
-            anthropic_tools = [_mcp_tool_to_anthropic_schema(t) for t in mcp_tools.tools]
+            openai_tools = [_mcp_tool_to_openai_schema(t) for t in mcp_tools.tools]
 
             messages = [
                 {
-                    "role": "user",
+                    "role": "system",
                     "content": (
-                        f"Research question: {query}\n\n"
-                        "Use the available tools to gather evidence before answering. "
-                        "Call search_migration_evidence for qualitative/narrative context, "
-                        "get_city_capacity_profile for raw city stats, and "
-                        "compute_push_pull_index when a specific origin/destination "
-                        "corridor risk score is useful."
+                        "You are an urban migration research agent with three tools.\n\n"
+                        "MANDATORY TOOL SEQUENCE for city-capacity questions:\n"
+                        "Step 1 — call get_city_capacity_profile with the city name to retrieve numeric indicators.\n"
+                        "Step 2 — call search_migration_evidence for qualitative research context.\n"
+                        "Step 3 — if an origin region is mentioned, call compute_push_pull_index.\n\n"
+                        "You MUST call at least two tools before writing any answer. "
+                        "Never skip get_city_capacity_profile when a city is named in the question."
                     ),
-                }
+                },
+                {
+                    "role": "user",
+                    "content": f"Research question: {query}",
+                },
             ]
 
             for _turn in range(MAX_TOOL_TURNS):
-                response = _select_tools_turn(client, messages, anthropic_tools)
+                response = _select_tools_turn(client, messages, openai_tools)
+                usage = response.usage
                 token_budget.add(
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
+                    input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                    output_tokens=getattr(usage, "completion_tokens", 0) or 0,
                     label=f"tool_selection_turn_{_turn}",
                 )
 
-                messages.append({"role": "assistant", "content": response.content})
+                choice = response.choices[0].message
+                tool_call_list = choice.tool_calls or []
 
-                tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-                if not tool_use_blocks:
-                    break  # Claude is done gathering evidence
+                # Store assistant message in OpenAI format
+                asst_msg: dict = {"role": "assistant", "content": choice.content or ""}
+                if tool_call_list:
+                    asst_msg["tool_calls"] = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name,
+                                         "arguments": tc.function.arguments},
+                        }
+                        for tc in tool_call_list
+                    ]
+                messages.append(asst_msg)
 
-                tool_results = []
-                for block in tool_use_blocks:
-                    gate_result = action_gate.check(block.name)
+                if not tool_call_list:
+                    break  # Model is done gathering evidence
+
+                for tc in tool_call_list:
+                    gate_result = action_gate.check(tc.function.name)
                     if not gate_result.allowed:
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                "content": f"BLOCKED by L4 action gate: {gate_result.reason}",
-                                "is_error": True,
-                            }
-                        )
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": f"BLOCKED by L4 action gate: {gate_result.reason}",
+                        })
                         continue
 
-                    tool_calls_made.append(block.name)
+                    tool_calls_made.append(tc.function.name)
                     try:
-                        result_text = await _call_mcp_tool(session, block.name, block.input)
+                        tool_input = (
+                            json.loads(tc.function.arguments)
+                            if isinstance(tc.function.arguments, str)
+                            else tc.function.arguments
+                        )
+                        result_text = await _call_mcp_tool(session, tc.function.name, tool_input)
                     except Exception as exc:  # noqa: BLE001
                         result_text = f"Tool call failed: {exc}"
 
-                    # Capture evidence text for the reasoning step, applying
-                    # L1 filtering to defend against indirect injection
-                    # planted inside retrieved/tool-returned content.
+                    # L1 filtering on retrieved content (indirect injection defence)
                     safe_text = l1_filter_retrieved_context([result_text])
                     if safe_text:
                         collected_texts.append(safe_text[0])
-                        collected_sources.append(block.name)
+                        collected_sources.append(tc.function.name)
 
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result_text,
-                        }
-                    )
-
-                messages.append({"role": "user", "content": tool_results})
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_text,
+                    })
 
     if not collected_texts:
         return AgentRunResult(
@@ -246,7 +266,8 @@ async def run_agent(user_query: str) -> AgentRunResult:
 
 
 def main():
-    demo_query = "Is Toulouse a realistic destination for climate migrants from a drought-affected region over the next 12 months?"
+    # modifier temporairement agent.py ligne 268
+    demo_query = "Can Lyon absorb 10,000 economic migrants from North Africa in 2025?"
     result = asyncio.run(run_agent(demo_query))
 
     print("=" * 70)
