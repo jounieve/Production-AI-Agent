@@ -4,7 +4,7 @@
 
 A migration corridor describes the typical path taken by displaced
 populations from an origin region to one or more receiving cities. A
-corridor is not just a straight-line geographic route — it is shaped by
+corridor is not just a straight-line geographic route - it is shaped by
 pre-existing transport infrastructure (which cities are reachable by
 affordable, reliable transport from the origin region), historical
 migration patterns (earlier waves of migration create the diaspora
@@ -23,14 +23,14 @@ Analysts can use several early warning indicators to detect an emerging
 migration corridor before it becomes a large, visible flow:
 
 - **Rising informal settlement growth at the urban periphery** of a
-  candidate receiving city — informal or semi-formal housing tends to
+  candidate receiving city - informal or semi-formal housing tends to
   expand ahead of an official recognition of the migration flow.
-- **Increased remittance flows back to the origin region** — early
+- **Increased remittance flows back to the origin region** - early
   migrants sending money home is a leading indicator that a corridor is
   forming, often visible in financial data well before population counts
   update.
 - **Rising demand for day-labor and informal-sector work** in the
-  receiving city — a spike in casual, low-barrier-to-entry labor demand is
+  receiving city - a spike in casual, low-barrier-to-entry labor demand is
   frequently the first labor-market signature of a new arrival wave, well
   before those arrivals show up in formal employment or housing
   statistics.

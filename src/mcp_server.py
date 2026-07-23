@@ -1,10 +1,10 @@
 """
-mcp_server.py — MCP server exposing the Urban Migration Agent's tools.
+mcp_server.py - MCP server exposing the Urban Migration Agent's tools.
 
 Three tools:
-  1. search_migration_evidence   — hybrid RAG search over the research corpus
-  2. get_city_capacity_profile   — structured lookup of a receiving city's data
-  3. compute_push_pull_index     — computed push/pull score for an origin/destination pair
+  1. search_migration_evidence   - hybrid RAG search over the research corpus
+  2. get_city_capacity_profile   - structured lookup of a receiving city's data
+  3. compute_push_pull_index     - computed push/pull score for an origin/destination pair
 
 Run standalone for local testing / MCP inspector:
     python src/mcp_server.py
@@ -34,6 +34,8 @@ _retriever: HybridRetriever | None = None
 
 
 def _get_retriever() -> HybridRetriever:
+    """Lazily builds and memoises the HybridRetriever on first tool call, so
+    the (expensive) embedding + cross-encoder models load once per server process."""
     global _retriever
     if _retriever is None:
         _retriever = HybridRetriever(_CORPUS_DIR)
@@ -41,6 +43,8 @@ def _get_retriever() -> HybridRetriever:
 
 
 def _load_cities() -> dict:
+    """Reads cities.json fresh on every call (cheap, small file) and indexes
+    it by lowercase name so lookups are case-insensitive."""
     with open(_CITIES_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
     return {city["name"].lower(): city for city in data["cities"]}
@@ -100,7 +104,7 @@ def search_migration_evidence(query: str) -> dict:
                 for h in hits
             ],
         }
-    except Exception as exc:  # noqa: BLE001 — intentionally broad: tools must never crash the server
+    except Exception as exc:  # noqa: BLE001 - intentionally broad: tools must never crash the server
         return {"error": f"search_migration_evidence failed: {exc}", "results": []}
 
 
@@ -187,6 +191,8 @@ _CAPACITY_WEIGHTS = {
 
 
 def _normalize(value: float, lo: float, hi: float) -> float:
+    """Min-max scales value into [0, 1] against the given range, clamping
+    outliers instead of extrapolating past 0 or 1."""
     return max(0.0, min(1.0, (value - lo) / (hi - lo))) if hi > lo else 0.0
 
 
@@ -212,7 +218,7 @@ def compute_push_pull_index(origin_region: str, destination_city: str, push_fact
     Args:
       origin_region: free-text name of the origin region (used for
         labeling only; push severity currently comes from
-        push_factor_type, not from the region name itself — see
+        push_factor_type, not from the region name itself - see
         limitations in REPORT.md)
       destination_city: must match a city in get_city_capacity_profile
       push_factor_type: one of "climate", "economic", "conflict"

@@ -1,10 +1,10 @@
-# `data/` — Contents and How to Populate It
+# `data/` - Contents and How to Populate It
 
-## `corpus/` — RAG source documents
+## `corpus/` - RAG source documents
 
 **Only `.txt` and `.md` files are read** by
 `src/retrieval.py::build_parent_child_index`. Any other format (PDF, DOCX,
-HTML...) is silently ignored — the retriever will simply act as if that
+HTML...) is silently ignored - the retriever will simply act as if that
 file does not exist. If you add a source in another format, **convert it
 to `.md`/`.txt` first** (e.g. with `pdftotext -layout file.pdf file.md`)
 and place the converted file here.
@@ -17,8 +17,8 @@ Current files:
 | `push_pull_factors.md` | Social networks as a pull factor, economic push factors, climate as a push factor |
 | `migration_corridors.md` | Definition of a migration corridor, early warning indicators |
 | `climate_early_warning_and_policy.md` | Data sources for climate migration early warning systems, proactive policy responses |
-| `real_world_source_migrations_climatiques.md` | Real-world French-language source article (extracted from the original PDF, kept for provenance/depth — supplementary, not required to answer `data/eval_questions.json`) |
-| `l-avenir-des-villes-face-aux-migrations-climatiques-2020-1.pdf` | The original PDF the extract above came from. Kept for reference only — **not read by the retriever** (wrong format). |
+| `real_world_source_migrations_climatiques.md` | Real-world French-language source article (extracted from the original PDF, kept for provenance/depth - supplementary, not required to answer `data/eval_questions.json`) |
+| `l-avenir-des-villes-face-aux-migrations-climatiques-2020-1.pdf` | The original PDF the extract above came from. Kept for reference only - **not read by the retriever** (wrong format). |
 
 If you change topic or add new corpus documents, keep the same rule:
 plain `.md`/`.txt`, one topic per file, and update the table above.
@@ -37,8 +37,8 @@ with the same keys to the `"cities"` list.
 
 Questions + `ground_truth` reference answers used by `eval/ragas_eval.py`
 and `eval/benchmark.py`. The rubric requires **≥10 questions** for full
-marks (F, 11-12 pts) — there are currently 12. Each `ground_truth` should
-be answerable from the content in `corpus/` — if you add a question, make
+marks (F, 11-12 pts) - there are currently 12. Each `ground_truth` should
+be answerable from the content in `corpus/` - if you add a question, make
 sure the supporting facts actually exist in a corpus document, or RAGAS's
 `context_recall`/`faithfulness` scores will look artificially bad (not
 because retrieval is broken, but because the answer was never retrievable

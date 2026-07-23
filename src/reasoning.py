@@ -1,9 +1,9 @@
 """
-reasoning.py — Reasoning strategy for the Urban Migration Agent.
+reasoning.py - Reasoning strategy for the Urban Migration Agent.
 
 Two LLM-driven roles live here:
 
-  1. Synthesis role (`self_consistency_synthesis`) — takes the user
+  1. Synthesis role (`self_consistency_synthesis`) - takes the user
      query + retrieved context and produces a structured answer using
      few-shot Chain-of-Thought in the format:
          EVIDENCE / ANALYSIS / CONCLUSION / CONFIDENCE
@@ -11,7 +11,7 @@ Two LLM-driven roles live here:
      three candidates are aggregated by majority vote on CONCLUSION,
      with CONFIDENCE used as a tie-breaker.
 
-  2. Critic role (`critic_review`) — a SEPARATE agent role (satisfies
+  2. Critic role (`critic_review`) - a SEPARATE agent role (satisfies
      the brief's "second agent" requirement) that checks the winning
      synthesis against the retrieved evidence before it's returned to
      the user, and produces a visible APPROVED / REJECTED verdict.
@@ -24,8 +24,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -43,14 +42,25 @@ from guardrails import TokenBudget
 load_dotenv()
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-if _OPENAI_API_KEY and not _OPENAI_API_KEY.startswith("sk-..."):
+# Same provider config switch as agent.py (LLM_PROVIDER in .env): both
+# supported providers speak the OpenAI-compatible chat.completions API, so
+# only the base_url/api_key differ.
+_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+_HAS_REAL_OPENAI_KEY = bool(_OPENAI_API_KEY) and not _OPENAI_API_KEY.startswith("sk-...")
+
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip().lower()
+if not LLM_PROVIDER:
+    LLM_PROVIDER = "openai" if _HAS_REAL_OPENAI_KEY else "ollama"
+
+if LLM_PROVIDER == "openai":
     MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     _client = OpenAI(api_key=_OPENAI_API_KEY)
-else:
+elif LLM_PROVIDER == "ollama":
     MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2:latest")
     _client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
+else:
+    raise ValueError(f"Unsupported LLM_PROVIDER={LLM_PROVIDER!r}. Use 'openai' or 'ollama'.")
 
 SELF_CONSISTENCY_K = 3
 
@@ -96,7 +106,7 @@ receiving_city_capacity.md. Job growth is comparatively strong at 3.4%
 year-over-year (city_profile). School capacity utilization is already
 high at 90% (city_profile).
 ANALYSIS: The housing market is not critically tight but has little
-slack — a 5,000-person influx would likely push vacancy below the 3%
+slack - a 5,000-person influx would likely push vacancy below the 3%
 threshold within months, especially given the strong job growth already
 attracting other new residents. The 90% school utilization leaves very
 little room for new enrollment, which receiving_city_capacity.md flags
@@ -105,7 +115,7 @@ CONCLUSION: Toulouse can likely absorb the migrants economically (strong
 job growth) but is a weak candidate on housing and school capacity
 without prior infrastructure investment; a phased arrival over 18-24
 months would materially reduce strain compared to a 12-month timeline.
-CONFIDENCE: 0.72 — city-level data is specific and directly relevant,
+CONFIDENCE: 0.72 - city-level data is specific and directly relevant,
 but the analysis lacks information on planned school capacity expansion
 or migrant skill profiles, which would sharpen the estimate.
 
@@ -114,7 +124,7 @@ Question: What role do social networks play in migration destination
 choice?
 
 Context:
-[doc:push_pull_factors.md] Social networks matter enormously — migrants
+[doc:push_pull_factors.md] Social networks matter enormously - migrants
 disproportionately move to cities where family members or people from
 their home region have already settled, because these networks lower
 the cost of arrival.
@@ -122,7 +132,7 @@ the cost of arrival.
 EVIDENCE: push_pull_factors.md states that migrants disproportionately
 choose destinations where existing social networks (family, people from
 the same home region) are already present.
-ANALYSIS: The document frames this as a cost-reduction mechanism —
+ANALYSIS: The document frames this as a cost-reduction mechanism -
 networks lower the cost of arrival by providing housing leads, job
 referrals, and language support, rather than purely being an emotional
 or cultural preference.
@@ -130,7 +140,7 @@ CONCLUSION: Social networks function as a pull factor by reducing the
 practical costs of arrival (housing, jobs, language), which makes
 existing diaspora concentration a strong predictor of destination choice
 independent of a city's raw economic indicators.
-CONFIDENCE: 0.65 — the mechanism is clearly described, but only one
+CONFIDENCE: 0.65 - the mechanism is clearly described, but only one
 source is available in the provided context, so this should not be
 treated as a comprehensive account of destination choice.
 --- END EXAMPLES ---
@@ -159,6 +169,8 @@ def _parse_structured_response(text: str) -> SynthesisCandidate:
     """Extracts the four required sections from a model response."""
 
     def _extract(section: str, next_sections: list[str]) -> str:
+        """Regex-slices the text between `section:` and whichever of
+        next_sections appears first (or end-of-string if none given)."""
         if next_sections:
             pattern = rf"{section}:\s*(.*?)(?=" + "|".join(f"{s}:" for s in next_sections) + r")"
         else:
@@ -186,6 +198,11 @@ def _parse_structured_response(text: str) -> SynthesisCandidate:
 
 @observe(name="reasoning.llm_call")
 def _call_llm(system_prompt: str, user_prompt: str, token_budget: TokenBudget, label: str) -> str:
+    """
+    Single non-tool-calling completion against whichever provider
+    LLM_PROVIDER resolved to (OpenAI or Ollama, both via the OpenAI SDK).
+    Every call's usage feeds the shared TokenBudget.
+    """
     response = _client.chat.completions.create(
         model=MODEL_NAME,
         max_tokens=1000,
@@ -204,6 +221,8 @@ def _call_llm(system_prompt: str, user_prompt: str, token_budget: TokenBudget, l
 
 
 def _build_context_block(context_chunks: list[str], sources: list[str]) -> str:
+    """Formats retrieved chunks as `[doc:source] text` lines, so the LLM's
+    EVIDENCE section can cite which source each fact came from."""
     lines = []
     for text, source in zip(context_chunks, sources):
         lines.append(f"[doc:{source}] {text}")
@@ -219,6 +238,8 @@ def _cluster_by_conclusion_similarity(candidates: list[SynthesisCandidate]) -> l
     agree" beyond exact string match.
     """
     def _keywords(text: str) -> set[str]:
+        """Words longer than 4 chars, lowercased - a cheap proxy for the
+        "significant" (non-stopword-ish) terms in a CONCLUSION."""
         return set(w for w in re.findall(r"\w+", text.lower()) if len(w) > 4)
 
     keyword_sets = [_keywords(c.conclusion) for c in candidates]
@@ -287,7 +308,7 @@ def self_consistency_synthesis(
 
 
 # --------------------------------------------------------------------------
-# Critic agent — the required "second agent role"
+# Critic agent - the required "second agent role"
 # --------------------------------------------------------------------------
 
 CRITIC_SYSTEM_PROMPT = """You are the critic component of an urban migration research agent.
@@ -296,12 +317,12 @@ retrieved, and a candidate answer produced by a separate synthesis
 agent. Your job is NOT to re-answer the question. Your job is to check
 the candidate answer for two failure modes:
 
-1. Hallucination — does the CONCLUSION or EVIDENCE section state a
+1. Hallucination - does the CONCLUSION or EVIDENCE section state a
    specific fact (a number, a causal claim, a named statistic) that
    does NOT appear anywhere in the provided context? Minor phrasing
    differences or reasonable numerical inferences (e.g. "approaching
    90% threshold" for a value of 88%) are NOT hallucinations.
-2. Overconfidence — is the stated CONFIDENCE above 0.9 when the
+2. Overconfidence - is the stated CONFIDENCE above 0.9 when the
    retrieved context is thin or indirect? A confidence of 0.7–0.9
    backed by city-profile data and relevant corpus passages is
    acceptable; do NOT flag it unless the evidence is clearly
@@ -333,6 +354,9 @@ def critic_review(
     candidate: SynthesisCandidate,
     token_budget: TokenBudget,
 ) -> CriticVerdict:
+    """Second agent role (rubric requirement): re-checks the winning synthesis
+    candidate against the same evidence for hallucination/overconfidence and
+    returns an APPROVED/REJECTED verdict - never re-answers the question itself."""
     context_block = _build_context_block(context_chunks, sources)
     user_prompt = (
         f"Question: {question}\n\n"

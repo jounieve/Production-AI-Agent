@@ -1,5 +1,5 @@
 """
-tests/test_security.py — 5 injection tests required by the rubric.
+tests/test_security.py - 5 injection tests required by the rubric.
 
 Each test targets a distinct attack surface:
     1. Direct prompt injection in the user query          -> L1
@@ -25,7 +25,7 @@ from guardrails import (
 
 
 # --------------------------------------------------------------------------
-# Test 1 — Direct prompt injection in the user query (L1)
+# Test 1 - Direct prompt injection in the user query (L1)
 # --------------------------------------------------------------------------
 
 def test_direct_prompt_injection_blocked_by_l1():
@@ -40,7 +40,7 @@ def test_direct_prompt_injection_blocked_by_l1():
 
 
 # --------------------------------------------------------------------------
-# Test 2 — Obfuscated injection using zero-width characters + fullwidth
+# Test 2 - Obfuscated injection using zero-width characters + fullwidth
 # unicode, designed to slip past a naive (non-normalizing) regex filter (L1)
 # --------------------------------------------------------------------------
 
@@ -59,7 +59,7 @@ def test_obfuscated_unicode_injection_blocked_by_l1():
 
 
 # --------------------------------------------------------------------------
-# Test 3 — Indirect injection: a malicious instruction planted inside
+# Test 3 - Indirect injection: a malicious instruction planted inside
 # content that would be RETRIEVED (e.g. from the corpus or a tool
 # result) rather than typed by the user (L1, retrieved-content filter)
 # --------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def test_indirect_injection_in_retrieved_content_filtered():
 
 
 # --------------------------------------------------------------------------
-# Test 4 — Attempt to call an unauthorized / unknown tool, simulating a
+# Test 4 - Attempt to call an unauthorized / unknown tool, simulating a
 # prompt-injection attack that tries to get the agent to invoke a tool
 # outside its allowed set (L4)
 # --------------------------------------------------------------------------
@@ -96,7 +96,7 @@ def test_unauthorized_tool_call_blocked_by_l4():
     assert unknown_result.allowed is False
 
     # (b) A tool that IS registered but marked high-risk / requires
-    # explicit allow must be blocked when no explicit allow is given —
+    # explicit allow must be blocked when no explicit allow is given -
     # simulating an injected instruction trying to trigger a
     # side-effecting action.
     high_risk_result = gate.check("publish_report_external", explicit_allow=False)
@@ -109,7 +109,7 @@ def test_unauthorized_tool_call_blocked_by_l4():
 
 
 # --------------------------------------------------------------------------
-# Test 5 — Runaway token consumption is stopped by TokenBudget,
+# Test 5 - Runaway token consumption is stopped by TokenBudget,
 # simulating an injected instruction that tries to force excessive
 # tool-calling / regeneration loops to drive up cost
 # --------------------------------------------------------------------------
@@ -122,7 +122,7 @@ def test_runaway_token_usage_stopped_by_token_budget():
     assert budget.used_tokens == 100
 
     # Simulate an attacker-triggered loop trying to keep calling the
-    # model well past the budget — the second call alone would push
+    # model well past the budget - the second call alone would push
     # usage to 300, over the 200 limit, and must raise.
     with pytest.raises(TokenBudgetExceeded):
         budget.add(input_tokens=100, output_tokens=100, label="call_2_over_budget")

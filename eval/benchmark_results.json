@@ -1,0 +1,136 @@
+{
+  "num_runs_attempted": 10,
+  "num_runs_blocked": 0,
+  "num_runs_completed": 10,
+  "avg_latency_seconds": 23.64,
+  "avg_cost_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "tool_call_distribution": {
+    "search_migration_evidence": 10
+  },
+  "pricing_used": {
+    "model": "llama3.2:latest",
+    "input_per_million_usd": 0.0,
+    "output_per_million_usd": 0.0,
+    "note": "cost is an ESTIMATE based on an assumed 60/40 input/output token split"
+  },
+  "per_run": [
+    {
+      "question": "What housing vacancy rate is generally considered a tight housing market for receiving cities?",
+      "latency_seconds": 18.73,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 7808
+    },
+    {
+      "question": "Why do social networks matter for migration destination choice?",
+      "latency_seconds": 26.68,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 8121
+    },
+    {
+      "question": "What are the three most commonly used proxies for a city's public services absorption capacity?",
+      "latency_seconds": 32.77,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 12022
+    },
+    {
+      "question": "How should housing and labor market capacity be weighted relative to public services in a composite capacity index?",
+      "latency_seconds": 22.61,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 8953
+    },
+    {
+      "question": "What is a migration corridor?",
+      "latency_seconds": 15.03,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 5598
+    },
+    {
+      "question": "What early warning indicators can analysts use to detect an emerging migration corridor?",
+      "latency_seconds": 24.36,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 10232
+    },
+    {
+      "question": "What data can be combined to build climate migration early warning systems?",
+      "latency_seconds": 23.28,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 9591
+    },
+    {
+      "question": "What policy responses lead to better integration outcomes for cities facing climate migration?",
+      "latency_seconds": 22.95,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 9835
+    },
+    {
+      "question": "What happens when a city has strong pull factors but weak absorption capacity?",
+      "latency_seconds": 22.89,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 8590
+    },
+    {
+      "question": "What are the main economic push factors driving migration?",
+      "latency_seconds": 27.08,
+      "estimated_cost_usd": 0.0,
+      "tools_called": [
+        "search_migration_evidence"
+      ],
+      "total_tokens": 10102
+    }
+  ],
+  "token_budget_trigger_demo": {
+    "triggered": true,
+    "configured_max_tokens": 50,
+    "tokens_used_at_trigger": 1086,
+    "exception_message": "Session used 1086 tokens, exceeding budget of 50 (triggered by call: 'synthesis_sample_1')."
+  },
+  "agent_version": {
+    "version": "1.0.0",
+    "tool_selection_prompt_hash": "624df41429a9",
+    "model": "llama3.2:latest",
+    "provider": "ollama",
+    "eu_ai_act_risk_tier": "LIMITED RISK"
+  },
+  "monitor_summary": {
+    "n_runs": 10,
+    "total_cost_usd": 0.0,
+    "alerts": [
+      "EMPTY/SHORT RESPONSE for 'What are the main economic push factors driving mi'"
+    ],
+    "tools": {
+      "search_migration_evidence": {
+        "calls": 10,
+        "errors": 0,
+        "avg_ms": 2800.5
+      }
+    }
+  }
+}

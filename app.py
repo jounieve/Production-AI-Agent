@@ -1,5 +1,5 @@
 """
-app.py — Streamlit chat interface for the Urban Migration Research Agent.
+app.py - Streamlit chat interface for the Urban Migration Research Agent.
 
 Run with:
     streamlit run app.py
@@ -43,6 +43,9 @@ if "chat_history" not in st.session_state:
 # Helper: render a completed AgentRunResult + events
 # ---------------------------------------------------------------------------
 def _render_result(result, events, expanded=True):
+    """Renders one AgentRunResult plus its pipeline progress events (from
+    run_agent's progress_callback) as a Streamlit chat bubble: an expandable
+    step-by-step trace, then the metrics row and final answer."""
     if result.blocked_reason:
         st.error(f"🚫 **Blocked:** {result.blocked_reason}")
         return
@@ -56,10 +59,10 @@ def _render_result(result, events, expanded=True):
 
             elif event_type == "mcp_ready":
                 tools_str = ", ".join(f"`{t}`" for t in data["tools"])
-                st.markdown(f"🔌 **MCP Server ready** — tools: {tools_str}")
+                st.markdown(f"🔌 **MCP Server ready** - tools: {tools_str}")
 
             elif event_type == "l4_blocked":
-                st.markdown(f"🚫 **L4 Action Gate BLOCKED** `{data['tool']}` — {data['reason']}")
+                st.markdown(f"🚫 **L4 Action Gate BLOCKED** `{data['tool']}` - {data['reason']}")
 
             elif event_type == "tool_call":
                 args_str = ", ".join(f"{k}=`{v}`" for k, v in data["args"].items())
@@ -72,7 +75,7 @@ def _render_result(result, events, expanded=True):
                     st.code(data["preview"], language=None)
 
             elif event_type == "synthesis_start":
-                st.markdown(f"🧠 **Self-Consistency synthesis** — k=3, {data['chunks']} context chunks")
+                st.markdown(f"🧠 **Self-Consistency synthesis** - k=3, {data['chunks']} context chunks")
 
             elif event_type == "synthesis_candidate":
                 bar = "█" * int(data["confidence"] * 10) + "░" * (10 - int(data["confidence"] * 10))
@@ -83,7 +86,7 @@ def _render_result(result, events, expanded=True):
 
             elif event_type == "synthesis_winner":
                 st.markdown(
-                    f"&nbsp;&nbsp;&nbsp;🏆 **Winner** — confidence `{data['confidence']:.2f}`, "
+                    f"&nbsp;&nbsp;&nbsp;🏆 **Winner** - confidence `{data['confidence']:.2f}`, "
                     f"agreement `{data['agreement']:.0%}`"
                 )
 
@@ -129,9 +132,13 @@ def _run_agent_blocking(query: str):
     result_holder = {}
 
     def _callback(event_type, data):
+        # Runs inside the worker thread; hands each pipeline event back to the
+        # main Streamlit thread via the queue instead of touching st.* directly.
         event_queue.put((event_type, data))
 
     def _thread():
+        # Streamlit's script thread isn't an asyncio loop, so run_agent (async)
+        # is driven from a plain background thread via asyncio.run().
         result_holder["result"] = asyncio.run(run_agent(query, progress_callback=_callback))
         event_queue.put(("__done__", None))
 
@@ -166,7 +173,7 @@ for dq in demo_queries:
 
 st.sidebar.markdown("---")
 st.sidebar.info(
-    "The last demo query tests the **L1 injection guardrail** — "
+    "The last demo query tests the **L1 injection guardrail** - "
     "the agent should block it immediately."
 )
 

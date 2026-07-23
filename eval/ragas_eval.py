@@ -1,5 +1,5 @@
 """
-eval/ragas_eval.py — RAGAS evaluation: baseline vs final pipeline.
+eval/ragas_eval.py - RAGAS evaluation: baseline vs final pipeline.
 
 "Baseline" = retrieval.basic_retrieval() (plain top-k cosine similarity,
 no BM25, no RRF, no reranking, no parent-child expansion) + a direct
@@ -59,6 +59,7 @@ _client = OpenAI()
 
 
 def _load_questions() -> list[dict]:
+    """Loads the question/ground_truth pairs used for both baseline and final runs."""
     with open(_QUESTIONS_PATH, "r", encoding="utf-8") as f:
         return json.load(f)["questions"]
 
@@ -116,6 +117,8 @@ def _run_pipeline(questions: list[dict], retriever: HybridRetriever, mode: str) 
 
 
 def main():
+    """Runs baseline then final pipelines over the eval questions, scores both
+    with RAGAS, and writes the before/after comparison table to ragas_results.json."""
     print("Building retriever (loads embedding + cross-encoder models)...")
     retriever = HybridRetriever(_CORPUS_DIR)
     questions = _load_questions()

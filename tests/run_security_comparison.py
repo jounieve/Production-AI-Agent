@@ -59,7 +59,7 @@ TESTS = [
 
 
 # --------------------------------------------------------------------------
-# BEFORE — simulate a vulnerable (unprotected) agent echoing the input
+# BEFORE - simulate a vulnerable (unprotected) agent echoing the input
 # --------------------------------------------------------------------------
 
 def agent_vulnerable(question: str) -> str:
@@ -68,7 +68,7 @@ def agent_vulnerable(question: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# AFTER — L1 filter + L4 gate (no LLM call needed for most attacks)
+# AFTER - L1 filter + L4 gate (no LLM call needed for most attacks)
 # --------------------------------------------------------------------------
 
 def agent_protected_l1_l4(question: str) -> str:
@@ -92,7 +92,7 @@ def agent_protected_l1_l4(question: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# Optional LIVE mode — actually calls the real agent via Ollama
+# Optional LIVE mode - actually calls the real agent via Ollama
 # --------------------------------------------------------------------------
 
 async def _live_agent_call(question: str) -> str:

@@ -1,14 +1,14 @@
-# Production AI Agent — Urban Migration Research Agent
+# Production AI Agent - Urban Migration Research Agent
 
 Agent de recherche production-grade sur la **migration urbaine** (topic #4 du brief) :
 il évalue si une ville donnée peut absorber un flux de migrants climatiques,
 économiques ou liés à un conflit, en combinant recherche documentaire hybride,
-données structurées par ville, et un score de risque de corridor calculé — le
+données structurées par ville, et un score de risque de corridor calculé - le
 tout sous contrainte de sécurité (guardrails) et d'observabilité (Langfuse).
 
 **État du dépôt** : tous les bugs bloquants identifiés ont été corrigés et
 re-testés (voir section 6). Il reste des tâches qui nécessitent vos propres
-clés API — voir section 7 **"Ce qu'il reste à faire"** avant de soumettre.
+clés API - voir section 7 **"Ce qu'il reste à faire"** avant de soumettre.
 
 ---
 
@@ -17,21 +17,23 @@ clés API — voir section 7 **"Ce qu'il reste à faire"** avant de soumettre.
 ```
 Production-AI-Agent/
 ├── README.md              ← ce fichier
-├── REPORT.md               ← rapport écrit à rédiger (max 4 pages, voir docs/HW_brief)
-├── requirements.txt        ← dépendances Python épinglées
-├── .env.example            ← clés requises (à copier en .env)
-├── conftest.py             ← permet à pytest de trouver src/ depuis n'importe où
+├── REPORT.md              ← rapport écrit à rédiger (max 4 pages, voir docs/HW_brief)
+├── requirements.txt       ← dépendances Python épinglées
+├── .env.example           ← clés requises (à copier en .env)
+├── conftest.py            ← permet à pytest de trouver src/ depuis n'importe où
+├── app.py                 ← interface de démo Streamlit (streamlit run app.py)
 ├── src/
 │   ├── agent.py            ← boucle principale : orchestre tout le pipeline
 │   ├── mcp_server.py       ← serveur MCP exposant 3 outils à l'agent
 │   ├── retrieval.py        ← recherche hybride (BM25+dense+RRF) + reranking
-│   ├── guardrails.py       ← L1 (filtre entrée) + L4 (gate d'action) + TokenBudget
+│   ├── guardrails.py       ← L1 (filtre entrée) + L4 (gate d'action) + TokenBudget + EU AI Act
 │   └── reasoning.py        ← few-shot CoT + Self-Consistency + agent critique
 ├── tests/
-│   └── test_security.py   ← 5 tests d'injection requis + 1 test de cohérence
+│   ├── test_security.py    ← 5 tests d'injection requis + 1 test de cohérence
+│   └── test_full_stack.py  ← validation complète mappée à chaque critère du rubric
 ├── eval/
 │   ├── ragas_eval.py       ← RAGAS : baseline vs pipeline final
-│   └── benchmark.py        ← coût, latence, distribution d'appels d'outils
+│   └── benchmark.py        ← coût, latence, distribution d'appels d'outils, monitoring
 ├── docs/
 │   ├── architecture.md     ← diagramme + description des composants
 │   ├── HW_brief(1).md      ← consignes du projet (fournies par l'enseignant)
@@ -39,9 +41,13 @@ Production-AI-Agent/
 └── data/
     ├── README.md            ← comment peupler ce dossier
     ├── corpus/              ← documents texte pour le RAG (.txt/.md uniquement)
-    ├── cities/cities.json  ← données structurées par ville
-    └── eval_questions.json ← questions + réponses de référence pour RAGAS
+    ├── cities/cities.json   ← données structurées par ville
+    └── eval_questions.json  ← questions + réponses de référence pour RAGAS
 ```
+
+Ce dépôt suit exactement la structure requise par `docs/HW_brief(1).md` - aucun
+fichier supplémentaire à la racine (pas de notebooks de labs, pas de module
+partagé séparé) : tout ce qui est nécessaire à l'agent vit dans `src/`.
 
 ---
 
@@ -53,7 +59,8 @@ cd Production-AI-Agent
 
 cp .env.example .env
 # → éditez .env et remplissez :
-#     ANTHROPIC_API_KEY=sk-ant-...
+#     LLM_PROVIDER=openai   (ou "ollama" pour un modèle 100% local, voir ci-dessous)
+#     OPENAI_API_KEY=sk-...           (si LLM_PROVIDER=openai)
 #     LANGFUSE_PUBLIC_KEY=...
 #     LANGFUSE_SECRET_KEY=...
 #     LANGFUSE_HOST=https://cloud.langfuse.com   (ou votre instance self-host)
@@ -63,6 +70,25 @@ pip install -r requirements.txt --break-system-packages
 python src/agent.py
 ```
 
+### Choix du provider LLM (`LLM_PROVIDER`)
+
+`src/agent.py` et `src/reasoning.py` supportent deux fournisseurs derrière la
+même interface (les deux parlent l'API `chat.completions` compatible OpenAI,
+donc c'est le même code applicatif dans les deux cas - seuls `base_url` et la
+clé changent). Le fournisseur se choisit avec **une seule variable**
+d'environnement, sans toucher au code :
+
+- `LLM_PROVIDER=openai` (+ `OPENAI_API_KEY`) - fournisseur par défaut, modèle `gpt-4o-mini`.
+- `LLM_PROVIDER=ollama` (+ `ollama serve` lancé localement, aucune clé requise)
+  - modèle par défaut `llama3.2:latest`, changeable via `LLM_MODEL`
+    (ex. `qwen2.5-coder:7b`). Coût marginal nul, utile pour itérer sans
+    consommer de crédits API.
+- Si `LLM_PROVIDER` n'est pas défini : `openai` si une vraie clé
+  `OPENAI_API_KEY` est présente, sinon repli automatique sur `ollama`.
+
+Ajouter Ollama n'a supprimé aucun support d'OpenAI : c'est un simple switch de
+configuration, pas un remplacement.
+
 Cette dernière commande doit produire en sortie : la question posée, les
 outils MCP appelés, la réponse finale (`CONCLUSION`), le score de confiance,
 le taux d'accord de la Self-Consistency, le verdict du critique, et l'usage
@@ -71,13 +97,13 @@ de tokens.
 ### Tester chaque brique séparément (recommandé avant l'agent complet)
 
 Chaque module a un bloc `if __name__ == "__main__":` qui sert de smoke test
-manuel. Testez dans cet ordre — ça isole immédiatement le composant en cause
+manuel. Testez dans cet ordre - ça isole immédiatement le composant en cause
 si quelque chose casse :
 
 ```bash
-python src/guardrails.py     # aucune clé API nécessaire — teste L1, L4, TokenBudget
+python src/guardrails.py     # aucune clé API nécessaire - teste L1, L4, TokenBudget
 python src/retrieval.py      # nécessite data/corpus/ peuplé (déjà fait, voir §3)
-python src/reasoning.py      # nécessite ANTHROPIC_API_KEY
+python src/reasoning.py      # nécessite OPENAI_API_KEY, ou rien du tout (repli sur Ollama local)
 python src/mcp_server.py     # lance le serveur MCP en standalone (Ctrl+C pour quitter)
 ```
 
@@ -113,29 +139,38 @@ Copiez les tables produites directement dans `REPORT.md`, section 3.
 
 ## 3. Rôle et fonctionnement de chaque fichier source
 
-### `src/guardrails.py` — Sécurité (L1 + L4 + TokenBudget)
+### `src/guardrails.py` - Sécurité (L1 + L4 + TokenBudget)
 
-- **L1 — `l1_input_filter(query)`** : tourne AVANT toute recherche ou appel
+- **L1 - `l1_input_filter(query)`** : tourne AVANT toute recherche ou appel
   LLM. Normalise l'Unicode (NFKC + suppression des caractères zero-width)
   pour déjouer les attaques obfusquées, rejette les requêtes trop longues, et
   compare contre une liste de patterns regex d'injection ("ignore previous
   instructions", "reveal your system prompt", etc.). Renvoie un
   `L1Result(allowed, normalized_query, reasons)`.
 - **`l1_filter_retrieved_context(chunks)`** : applique le même filtre au
-  contenu **récupéré** (RAG), pas seulement à la question de l'utilisateur —
+  contenu **récupéré** (RAG), pas seulement à la question de l'utilisateur -
   défense contre l'injection indirecte (instruction malveillante cachée dans
   un document du corpus).
-- **L4 — `ActionGate`** : classe stateful qui vérifie chaque appel d'outil
+- **L4 - `ActionGate`** : classe stateful qui vérifie chaque appel d'outil
   contre `ACTION_RISK_MATRIX` avant exécution. Un outil absent de la matrice
   est **bloqué par défaut** (fail-closed). Les outils `"high"` risk
   nécessitent un flag explicite. Un compteur par session applique aussi une
   limite d'appels par outil.
 - **`TokenBudget`** : compteur cumulatif de tokens (entrée+sortie) sur une
-  session ; lève `TokenBudgetExceeded` si le budget configuré est dépassé —
+  session ; lève `TokenBudgetExceeded` si le budget configuré est dépassé -
   coupe-circuit indépendant du L4, utile contre les boucles d'appels d'outils
   déclenchées par injection.
+- **`risk_tier(description)`** : classification EU AI Act (PROHIBITED / HIGH
+  RISK / LIMITED RISK / MINIMAL RISK) à partir d'une description en texte
+  libre, plus l'obligation associée. Appelée par `src/agent.py` sur
+  `AGENT_DESCRIPTION` au chargement du module, pour que la section 5 du
+  rapport soit backée par du code exécutable, pas seulement une justification
+  en prose. Vérifie qu'un mot-clé topique ("migration") ne suffit pas à
+  déclencher HIGH RISK - seul un cas d'usage décisionnel réel (contrôle aux
+  frontières, éligibilité à l'asile...) le déclenche ; voir le docstring de
+  la fonction pour le raisonnement complet.
 
-### `src/retrieval.py` — Pipeline de recherche hybride
+### `src/retrieval.py` - Pipeline de recherche hybride
 
 1. **Chunking parent-enfant** (`build_parent_child_index`) : découpe chaque
    document `.txt`/`.md` du corpus en blocs "parents" (~1200 caractères,
@@ -144,16 +179,16 @@ Copiez les tables produites directement dans `REPORT.md`, section 3.
    - `_bm25_search` : recherche lexicale (BM25Okapi) sur les chunks enfants.
    - `_dense_search` : recherche sémantique (embeddings `all-MiniLM-L6-v2`).
    - `_rrf_fuse` : fusion par Reciprocal Rank Fusion (dépend du rang, pas de
-     l'échelle des scores — c'est ce qui permet de combiner BM25 et cosinus
+     l'échelle des scores - c'est ce qui permet de combiner BM25 et cosinus
      sans normalisation).
    - `_rerank` : reranking cross-encoder (`ms-marco-MiniLM-L-6-v2`) sur les
      candidats fusionnés.
    - Expansion enfant → parent avant de renvoyer le contexte final.
 3. **`basic_retrieval()`** : top-k cosinus simple, sans BM25/RRF/rerank/
-   parent-child — sert uniquement de **baseline** pour la comparaison RAGAS
+   parent-child - sert uniquement de **baseline** pour la comparaison RAGAS
    (voir `eval/ragas_eval.py`).
 
-### `src/mcp_server.py` — Serveur MCP (3 outils)
+### `src/mcp_server.py` - Serveur MCP (3 outils)
 
 Serveur `FastMCP` exposant :
 
@@ -167,7 +202,7 @@ Chaque outil a une docstring complète (Use when / Do NOT use / Returns /
 Example) et attrape ses propres exceptions pour ne jamais faire planter le
 serveur (retourne un dict `{"error": ...}` structuré à la place).
 
-### `src/agent.py` — Boucle principale
+### `src/agent.py` - Boucle principale
 
 Orchestre le pipeline complet :
 `requête utilisateur → L1 → boucle d'appel d'outils MCP (via un vrai client
@@ -175,23 +210,41 @@ stdio, chaque appel passant par le L4) → L1 sur le contenu récupéré →
 Self-Consistency (k=3) + few-shot CoT → agent critique → réponse finale
 structurée (AgentRunResult)`.
 
+Le fournisseur LLM se choisit via `LLM_PROVIDER` (voir ci-dessus) : `_select_tools_turn`
+utilise le SDK OpenAI standard (OpenAI et Ollama parlent tous deux l'API
+`chat.completions`), et normalise la réponse en `_LLMReply` (tool_calls sous
+forme de dicts simples, pas d'objets SDK) pour que le reste de la boucle ne
+touche jamais aux détails du fournisseur.
+
 Chaque appel LLM de sélection d'outil (`_select_tools_turn`) et chaque appel
 d'outil MCP (`_call_mcp_tool`) a désormais son propre span Langfuse
-(`@observe`), en plus du span racine `agent.run` — pour que chaque LLM call
+(`@observe`), en plus du span racine `agent.run` - pour que chaque LLM call
 et chaque tool call soit individuellement visible dans une trace.
+
+**Versioning et monitoring de production** (`AGENT_VERSION`, `AgentMonitor`) :
+`AGENT_VERSION` est un dict incluant un hash SHA-256 (`hash_prompt`) du prompt
+système de sélection d'outils - si le hash change entre deux runs, le prompt a
+changé, ce qui permet de tracer un changement de comportement jusqu'au commit
+qui a édité le prompt. `AgentMonitor` (instance module-level `_monitor`)
+accumule des statistiques sur tous les runs d'un même process et déclenche une
+alerte imprimée (`[MONITOR ALERT] ...`) sur un run lent, un run coûteux, une
+réponse vide, ou un taux d'erreur d'outil élevé - complémentaire aux spans
+Langfuse (qui montrent "que s'est-il passé dans CE trace", pas "y a-t-il un
+problème à travers plusieurs runs"). `eval/benchmark.py` imprime et sauvegarde
+`get_monitor_summary()` à la fin de ses 10 runs.
 
 Le point d'entrée `main()` lance une question de démonstration et affiche le
 résultat complet (réponse, confiance, accord de Self-Consistency, verdict du
-critique, usage de tokens).
+critique, usage de tokens, version de l'agent, tier EU AI Act, résumé du monitor).
 
-### `src/reasoning.py` — Stratégie de raisonnement
+### `src/reasoning.py` - Stratégie de raisonnement
 
 - **`self_consistency_synthesis`** : appelle le LLM **k=3 fois
   indépendamment** avec un prompt few-shot imposant le format
   `EVIDENCE / ANALYSIS / CONCLUSION / CONFIDENCE`, puis regroupe les réponses
   par similarité de mots-clés sur la CONCLUSION (vote majoritaire), et
   retourne le candidat le plus confiant du cluster gagnant.
-- **`critic_review`** : **second rôle d'agent**, séparé — vérifie la réponse
+- **`critic_review`** : **second rôle d'agent**, séparé - vérifie la réponse
   gagnante contre le contexte réellement fourni (détecte hallucination et
   surconfiance) et rend un verdict `APPROVED`/`REJECTED` avec justification.
 
@@ -224,7 +277,7 @@ d'où `pytest` est lancé.
   12 questions de `eval_questions.json`, plus un document `.md` supplémentaire
   extrait du PDF source réel (`real_world_source_migrations_climatiques.md`)
   conservé pour la profondeur/provenance. Le PDF original est gardé tel quel
-  mais **n'est pas lu par le retriever** (seuls `.txt`/`.md` le sont — voir
+  mais **n'est pas lu par le retriever** (seuls `.txt`/`.md` le sont - voir
   `data/README.md` pour la règle complète).
 - **`cities/cities.json`** : données structurées (vacance de logement,
   croissance de l'emploi, capacité scolaire, lits d'hôpitaux, couverture
@@ -234,7 +287,7 @@ d'où `pytest` est lancé.
 
 ---
 
-## 4. Architecture (résumé — diagramme complet dans `docs/architecture.md`)
+## 4. Architecture (résumé - diagramme complet dans `docs/architecture.md`)
 
 ```
 Utilisateur
@@ -260,7 +313,7 @@ Réponse finale structurée (AgentRunResult)
 
 `docs/architecture.md` contient en plus la description détaillée de chaque
 composant et l'explication d'un choix de design (pourquoi RRF plutôt qu'une
-somme pondérée de scores) — à recopier/adapter dans `REPORT.md` section 2.
+somme pondérée de scores) - à recopier/adapter dans `REPORT.md` section 2.
 
 ---
 
@@ -272,24 +325,24 @@ justifier dans `REPORT.md`** (sections 4, 5, 6 du brief) :
 - **Sécurité** : les 5 tests d'injection + leur résultat avant/après L1+L4 →
   copiez la sortie de `pytest tests/test_security.py -v`.
 - **EU AI Act** : réfléchissez au tier de risque de cet agent (probablement
-  *limited* ou *minimal* — un agent de recherche/analyse, pas de décision
+  *limited* ou *minimal* - un agent de recherche/analyse, pas de décision
   automatisée à fort impact sur des personnes) et justifiez avec les critères
   précis de l'AI Act, pas juste l'affirmation du tier.
 - **Limitations** : au moins deux limitations concrètes existent déjà dans le
   code lui-même à signaler honnêtement dans le rapport, par exemple :
   - `compute_push_pull_index` utilise des scores de sévérité **constants**
     par type de push factor (`_PUSH_FACTOR_SEVERITY` dans `mcp_server.py`),
-    pas des données live (indices de sécheresse, conflits...) — à citer comme
+    pas des données live (indices de sécheresse, conflits...) - à citer comme
     limitation explicite plutôt que de la cacher.
   - `benchmark.py` estime le coût avec un **split input/output supposé**
-    (60/40), pas les tokens exacts par appel — autre limitation documentée
+    (60/40), pas les tokens exacts par appel - autre limitation documentée
     dans le code lui-même (voir commentaire `ASSUMED_INPUT_FRACTION`).
 
 ---
 
 ## 6. Corrections déjà appliquées (historique)
 
-Ces problèmes ont été identifiés puis corrigés et **re-testés** — ils ne
+Ces problèmes ont été identifiés puis corrigés et **re-testés** - ils ne
 doivent plus être présents si vous partez de cette version du dépôt :
 
 | Problème | Correction | Vérifié |
@@ -301,14 +354,21 @@ doivent plus être présents si vous partez de cette version du dépôt :
 | `data/README.md` absent | Créé | ✅ |
 | `REPORT.MD` mal nommé (casse) | Renommé en `REPORT.md` | ✅ |
 | Observabilité Langfuse partielle (pas de span par appel d'outil/LLM dans `agent.py`) | Spans dédiés ajoutés (`_select_tools_turn`, `_call_mcp_tool`) | ✅ compile sans erreur |
-| `.gitignore` incomplet | `__pycache__/`, `.pytest_cache/`, fichiers de résultats d'éval ajoutés | ✅ |
+| `.gitignore` ne contenait que `.env` malgré ce tableau (pyca cache versionné) | `.gitignore` corrigé pour de vrai (`__pycache__/`, `.pytest_cache/`, résultats d'éval) | ✅ `src/__pycache__` retiré du suivi git |
+| `data/Read.me` : doublon exact de `data/README.md` | Supprimé | ✅ |
+| `src/agent.py`/`src/reasoning.py` détectaient le fournisseur en testant si `OPENAI_API_KEY` ressemblait à une vraie clé, sans switch explicite | `LLM_PROVIDER=openai\|ollama` en config explicite dans `.env` ; repli automatique sur Ollama si non défini et pas de vraie clé OpenAI | ✅ testé en direct contre un serveur Ollama local (tool-calling multi-tour + synthèse + critique) |
+| `eval/benchmark.py` estimait le coût avec un tarif Claude Sonnet câblé en dur, alors que l'agent n'utilise jamais Claude par défaut | Coût lu dynamiquement dans `agent.PRICING_USD_PER_MTOK` d'après `agent.MODEL_NAME` | ✅ |
+| README section 2 demandait `ANTHROPIC_API_KEY`, une clé jamais utilisée par le code (`OPENAI_API_KEY`/Ollama seulement) | Corrigé | ✅ |
+| Docstrings manquantes sur des fonctions internes (`_bm25_search`, `ActionGate.check`, `TokenBudget.add`, etc.) | Commentaire d'1-2 lignes ajouté à chaque fonction sans docstring dans `src/`, `eval/`, `app.py` | ✅ |
+| Tirets cadratins (`—`) dans le code et la documentation | Remplacés par des tirets simples partout sauf dans `docs/HW_brief(1).md`/`docs/HW_rubric.md` (fournis par l'enseignant, non modifiés) | ✅ |
+| Les concepts du cours (RAG, sécurité, raisonnement, production) n'avaient pas de trace explicite dans le code lorsqu'ils venaient d'une brique "production" spécifique | `risk_tier()` (EU AI Act, `guardrails.py`) et `AgentMonitor`/`hash_prompt`/`AGENT_VERSION` versionné (monitoring + versioning de production, `agent.py`) implémentés directement dans `src/`, avec tests dédiés dans `tests/test_full_stack.py::TestLab4Production` | ✅ 5 tests dédiés passent, vérifié en direct (alertes déclenchées, hash cohérent) |
 
 ---
 
 ## 7. Ce qu'il reste à faire avant de soumettre
 
 Rien de ce qui suit n'a pu être testé automatiquement (nécessite vos clés API
-personnelles) — **à faire par le groupe avant le rendu** :
+personnelles) - **à faire par le groupe avant le rendu** :
 
 1. **Obtenir et renseigner vos clés dans `.env`** (`ANTHROPIC_API_KEY`,
    `LANGFUSE_*`), puis lancer réellement :
@@ -331,9 +391,15 @@ personnelles) — **à faire par le groupe avant le rendu** :
    python eval/ragas_eval.py
    python eval/benchmark.py
    ```
-   Vérifiez que `TokenBudget` a bien été déclenché au moins une fois pendant
-   les tests (`benchmark.py` le fait automatiquement et l'affiche) — c'est
-   une exigence explicite du rubric (critère G).
+   `eval/ragas_results.json` est déjà présent dans le dépôt (résultats d'une
+   exécution réelle, déjà recopiés dans `REPORT.md`). **`eval/benchmark_results.json`
+   n'existe pas encore** - lancez `python eval/benchmark.py` avant de soumettre
+   et recopiez ses vrais chiffres (coût, latence, distribution d'outils) dans
+   `REPORT.md` section 3 ; ne laissez pas les chiffres actuels sans les avoir
+   vérifiés contre une exécution réelle. Vérifiez aussi que `TokenBudget` a
+   bien été déclenché au moins une fois pendant les tests (`benchmark.py` le
+   fait automatiquement et l'affiche) - c'est une exigence explicite du
+   rubric (critère G).
 
 4. **Rédiger `REPORT.md`** en suivant exactement la structure imposée par
    `docs/HW_brief(1).md` (7 sections, max 4 pages). Utilisez la section 5
@@ -346,13 +412,13 @@ personnelles) — **à faire par le groupe avant le rendu** :
    code qui tourne").
 
 6. **Remplir le tableau de disclosure IA** (section 7 du rapport) de façon
-   honnête — soyez prêts à expliquer n'importe quelle fonction du code si on
+   honnête - soyez prêts à expliquer n'importe quelle fonction du code si on
    vous le demande (rubric critère K).
 
 7. **(Optionnel mais recommandé)** Ajouter davantage de documents/questions
    au corpus si vous voulez enrichir l'évaluation RAGAS au-delà des 12
-   questions actuelles — voir `data/README.md` pour la règle à respecter
+   questions actuelles - voir `data/README.md` pour la règle à respecter
    (`.txt`/`.md` uniquement, un fichier par thème).
 
 8. **Vérifier le nom exact de fichier avant de pousser** : `REPORT.md` (pas
-   `Report.md`, pas `REPORT.MD`) — Git est sensible à la casse.
+   `Report.md`, pas `REPORT.MD`) - Git est sensible à la casse.

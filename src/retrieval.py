@@ -1,5 +1,5 @@
 """
-retrieval.py — Hybrid retrieval pipeline for the Urban Migration Agent.
+retrieval.py - Hybrid retrieval pipeline for the Urban Migration Agent.
 
 Pipeline:
     1. Parent-child chunking of the corpus (children = small, searchable
@@ -19,13 +19,10 @@ rubric F.
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -183,6 +180,10 @@ class HybridRetriever:
     """
 
     def __init__(self, corpus_dir: str | Path):
+        """Builds parent/child chunks from corpus_dir, then builds the BM25
+        index, dense embeddings, and cross-encoder over the child chunks.
+        Expensive (loads two ML models) - build once and reuse, see
+        mcp_server._get_retriever()."""
         self.parents, self.children = build_parent_child_index(corpus_dir)
         self._parent_by_id = {p.id: p for p in self.parents}
 
@@ -209,6 +210,8 @@ class HybridRetriever:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
+        """Lowercase word tokenizer shared by indexing and querying, so
+        BM25's vocabulary matches at query time."""
         return re.findall(r"\w+", text.lower())
 
     # ---------------------------------------------------------------
@@ -216,6 +219,7 @@ class HybridRetriever:
     # ---------------------------------------------------------------
     @observe(name="retrieval.bm25_search")
     def _bm25_search(self, query: str, top_k: int = TOP_K_LEXICAL) -> list[tuple[int, float]]:
+        """Exact/lexical match: ranks child chunks by BM25 score against the query terms."""
         scores = self.bm25.get_scores(self._tokenize(query))
         ranked = np.argsort(scores)[::-1][:top_k]
         return [(int(i), float(scores[i])) for i in ranked]
@@ -225,6 +229,8 @@ class HybridRetriever:
     # ---------------------------------------------------------------
     @observe(name="retrieval.dense_search")
     def _dense_search(self, query: str, top_k: int = TOP_K_DENSE) -> list[tuple[int, float]]:
+        """Semantic match: ranks child chunks by cosine similarity between
+        the query embedding and each pre-computed chunk embedding."""
         q_emb = self.dense_model.encode([query], normalize_embeddings=True)[0]
         sims = self._child_embeddings @ q_emb
         ranked = np.argsort(sims)[::-1][:top_k]
@@ -257,6 +263,9 @@ class HybridRetriever:
     def _rerank(
         self, query: str, candidate_indices: list[int], top_k: int = TOP_K_FINAL
     ) -> list[tuple[int, float]]:
+        """Scores each (query, chunk) pair with the cross-encoder - slower but
+        more precise than BM25/cosine since it reads both texts jointly - and
+        keeps only the top_k candidates."""
         pairs = [[query, self.children[i].text] for i in candidate_indices]
         scores = self.cross_encoder.predict(pairs)
         order = np.argsort(scores)[::-1][:top_k]
@@ -267,6 +276,9 @@ class HybridRetriever:
     # ---------------------------------------------------------------
     @observe(name="retrieval.hybrid_search")
     def search(self, query: str, top_k: int = TOP_K_FINAL) -> list[RetrievedContext]:
+        """Full production pipeline: BM25 + dense -> RRF fusion -> cross-encoder
+        rerank -> expand surviving child chunks to their parent chunks (de-duped)
+        before returning context to the LLM. Called by mcp_server.search_migration_evidence."""
         bm25_hits = self._bm25_search(query)
         dense_hits = self._dense_search(query)
 
@@ -303,6 +315,10 @@ class HybridRetriever:
     # ---------------------------------------------------------------
     @observe(name="retrieval.basic_retrieval")
     def basic_retrieval(self, query: str, top_k: int = TOP_K_FINAL) -> list[RetrievedContext]:
+        """Naive top-k cosine search over raw child chunks - no BM25, no RRF,
+        no reranking, no parent expansion. Only used by eval/ragas_eval.py as
+        the "before Block 1 improvements" baseline to compare the real
+        pipeline against."""
         q_emb = self.dense_model.encode([query], normalize_embeddings=True)[0]
         sims = self._child_embeddings @ q_emb
         ranked = np.argsort(sims)[::-1][:top_k]

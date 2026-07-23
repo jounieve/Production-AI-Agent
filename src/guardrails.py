@@ -1,14 +1,14 @@
 """
-guardrails.py — Security stack for the Urban Migration Agent.
+guardrails.py - Security stack for the Urban Migration Agent.
 
 Two layers, matching the course's L1-L4 framework:
 
-  L1 (input filtering) — runs on the raw user query BEFORE retrieval or
+  L1 (input filtering) - runs on the raw user query BEFORE retrieval or
   any LLM call. Catches prompt injection attempts and normalizes unicode
   so obfuscated attacks (homoglyphs, zero-width characters, fullwidth
   characters) can't slip past pattern matching.
 
-  L4 (action gating) — runs BEFORE every tool call the agent wants to
+  L4 (action gating) - runs BEFORE every tool call the agent wants to
   make. Consults ACTION_RISK_MATRIX to decide whether the call is
   allowed outright, allowed with logging, or blocked.
 
@@ -16,6 +16,9 @@ Also provides TokenBudget, a per-session token counter that raises once
 a session exceeds its configured budget, so a single run (or a prompt
 injection trying to trigger runaway tool calls) can't blow through cost
 limits silently.
+
+Also provides risk_tier(), the EU AI Act classifier from
+lab_B4_production.ipynb, adapted (see its docstring for what changed and why).
 """
 
 from __future__ import annotations
@@ -26,10 +29,10 @@ from dataclasses import dataclass, field
 
 
 # --------------------------------------------------------------------------
-# L1 — Input filtering
+# L1 - Input filtering
 # --------------------------------------------------------------------------
 
-# Known prompt-injection patterns. Not exhaustive — this is a first line
+# Known prompt-injection patterns. Not exhaustive - this is a first line
 # of defense, not a guarantee. Patterns are intentionally broad (case
 # insensitive, partial phrase match) to catch variants.
 INJECTION_PATTERNS: list[str] = [
@@ -133,7 +136,7 @@ def l1_filter_retrieved_context(chunks: list[str]) -> list[str]:
 
 
 # --------------------------------------------------------------------------
-# L4 — Action gating
+# L4 - Action gating
 # --------------------------------------------------------------------------
 
 # Risk matrix: every tool the agent can call must be listed here.
@@ -179,21 +182,26 @@ class L4Result:
 
 class ActionGate:
     """
-    Stateful L4 gate — tracks how many times each tool has been called
+    Stateful L4 gate - tracks how many times each tool has been called
     in the current session so ACTION_RISK_MATRIX call limits can be
     enforced, not just consulted once.
     """
 
     def __init__(self):
+        # Per-tool call counter for this session; starts empty every time an
+        # ActionGate is created (agent.py makes one per run_agent() call).
         self._call_counts: dict[str, int] = {}
 
     def check(self, tool_name: str, explicit_allow: bool = False) -> L4Result:
+        """Call BEFORE every tool invocation. Blocks unknown tools (fail-closed),
+        high-risk tools without explicit_allow, and tools past their per-session
+        call quota; otherwise increments the counter and allows the call."""
         policy = ACTION_RISK_MATRIX.get(tool_name)
 
         if policy is None:
             return L4Result(
                 allowed=False,
-                reason=f"'{tool_name}' is not in ACTION_RISK_MATRIX — unknown tools are blocked by default.",
+                reason=f"'{tool_name}' is not in ACTION_RISK_MATRIX - unknown tools are blocked by default.",
             )
 
         if policy["requires_explicit_allow"] and not explicit_allow:
@@ -216,6 +224,7 @@ class ActionGate:
         return L4Result(allowed=True, reason="within policy")
 
     def reset(self):
+        """Clears all per-tool call counts, starting a fresh session quota."""
         self._call_counts = {}
 
 
@@ -234,7 +243,7 @@ class TokenBudget:
 
     This exists both as a cost-control mechanism and as a defense
     against prompt-injection attacks that try to trigger runaway
-    tool-calling loops (e.g. "call this tool 500 times") — even if L4
+    tool-calling loops (e.g. "call this tool 500 times") - even if L4
     rate limits are somehow bypassed, TokenBudget provides a second,
     independent circuit breaker.
     """
@@ -242,9 +251,11 @@ class TokenBudget:
     def __init__(self, max_tokens: int = 50_000):
         self.max_tokens = max_tokens
         self.used_tokens = 0
-        self._log: list[dict] = []
+        self._log: list[dict] = []  # per-call breakdown, used by summary() for reporting
 
     def add(self, input_tokens: int, output_tokens: int, label: str = "") -> None:
+        """Records one LLM call's token usage and raises TokenBudgetExceeded
+        immediately if the running total now exceeds max_tokens."""
         total = input_tokens + output_tokens
         self.used_tokens += total
         self._log.append(
@@ -262,15 +273,51 @@ class TokenBudget:
             )
 
     def remaining(self) -> int:
+        """Tokens still available before the budget would raise, floored at 0."""
         return max(0, self.max_tokens - self.used_tokens)
 
     def summary(self) -> dict:
+        """Snapshot dict used by agent.py's AgentRunResult.token_usage and by
+        REPORT.md's cost/latency table (eval/benchmark.py)."""
         return {
             "used_tokens": self.used_tokens,
             "max_tokens": self.max_tokens,
             "remaining_tokens": self.remaining(),
             "num_calls_logged": len(self._log),
         }
+
+
+# --------------------------------------------------------------------------
+# EU AI Act risk classification 
+# --------------------------------------------------------------------------
+
+def risk_tier(description: str) -> tuple[str, str]:
+    """
+    Classifies an agent's risk tier under the EU AI Act from a free-text
+    description, returning (tier, obligation).
+    """
+    d = description.lower()
+
+    if any(m in d for m in ["social scoring", "biometric surveillance"]):
+        return "PROHIBITED", "Do not deploy."
+
+    if any(m in d for m in [
+        "hiring", "credit scoring", "law enforcement", "criminal justice",
+        "border control", "asylum eligibility", "immigration status determination",
+    ]):
+        return (
+            "HIGH RISK",
+            "Human-in-the-loop review, audit trail, and a conformity "
+            "assessment are required before deployment (Annex III).",
+        )
+
+    if any(m in d for m in ["chatbot", "assistant", "research", "analysis", "summary"]):
+        return (
+            "LIMITED RISK",
+            "Users must be informed they are interacting with an AI system (Article 52).",
+        )
+
+    return "MINIMAL RISK", "No obligation beyond general good practice."
 
 
 # --------------------------------------------------------------------------
@@ -301,3 +348,7 @@ if __name__ == "__main__":
         budget.add(50, 50, label="synthesis_call_2")
     except TokenBudgetExceeded as e:
         print("Budget correctly triggered:", e)
+
+    # EU AI Act risk_tier example (see agent.py's AGENT_DESCRIPTION for the real one)
+    print(risk_tier("Urban migration research and analysis agent for policy analysts."))
+    print(risk_tier("Automated border control eligibility decision system."))

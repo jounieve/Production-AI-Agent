@@ -1,5 +1,5 @@
 """
-conftest.py (repo root) — makes `src/` importable for every test module,
+conftest.py (repo root) - makes `src/` importable for every test module,
 regardless of which directory `pytest` is invoked from.
 
 Without this file at the repo root, `python -m pytest tests/test_security.py`

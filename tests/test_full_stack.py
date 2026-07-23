@@ -394,10 +394,13 @@ class TestReasoning:
 class TestObservability:
 
     def test_e1_agent_version_defined(self):
-        """E -- AGENT_VERSION must be a non-empty string."""
+        """E -- AGENT_VERSION must be logged, including a prompt hash for
+        traceability (lab_B4_production.ipynb's hash_prompt pattern)."""
         from agent import AGENT_VERSION
-        assert isinstance(AGENT_VERSION, str)
-        assert len(AGENT_VERSION) > 0
+        assert isinstance(AGENT_VERSION, dict)
+        assert AGENT_VERSION.get("version")
+        assert AGENT_VERSION.get("tool_selection_prompt_hash")
+        assert AGENT_VERSION.get("model")
 
     def test_e2_key_agent_functions_callable(self):
         """E -- @observe-decorated functions must remain callable after decoration."""
@@ -425,7 +428,56 @@ class TestObservability:
 
 
 # ===========================================================================
-# Gate : pass/fail criteria  (repo must pass all of these)
+# Production features
+# ===========================================================================
+
+class TestLab4Production:
+
+    def test_risk_tier_research_agent_is_limited_risk(self):
+        """This project's own description must classify as LIMITED, not HIGH,
+        risk -- guards against the bare-keyword bug the lab's original
+        risk_tier() had (see guardrails.risk_tier's docstring)."""
+        from guardrails import risk_tier
+        from agent import AGENT_DESCRIPTION
+        tier, obligation = risk_tier(AGENT_DESCRIPTION)
+        assert tier == "LIMITED RISK"
+        assert "AI system" in obligation
+
+    def test_risk_tier_border_control_is_high_risk(self):
+        """A genuine Annex III decision system must still classify as HIGH RISK."""
+        from guardrails import risk_tier
+        tier, _ = risk_tier("Automated border control eligibility decision system.")
+        assert tier == "HIGH RISK"
+
+    def test_agent_version_matches_current_prompt_hash(self):
+        """hash_prompt(TOOL_SELECTION_SYSTEM_PROMPT) must match what's logged
+        in AGENT_VERSION -- if someone edits the prompt without noticing,
+        this test catches the drift."""
+        from agent import AGENT_VERSION, TOOL_SELECTION_SYSTEM_PROMPT, hash_prompt
+        assert AGENT_VERSION["tool_selection_prompt_hash"] == hash_prompt(TOOL_SELECTION_SYSTEM_PROMPT)
+
+    def test_agent_monitor_alerts_on_slow_expensive_and_empty_runs(self):
+        """AgentMonitor must raise all three alert types it's designed for."""
+        from agent import AgentMonitor
+        mon = AgentMonitor(slow_run_seconds=10, expensive_run_usd=0.01)
+        mon.record_run("slow question", "a fine answer here", duration_s=15, cost_usd=0.0)
+        mon.record_run("pricey question", "a fine answer here", duration_s=1, cost_usd=0.02)
+        mon.record_run("empty question", "", duration_s=1, cost_usd=0.0)
+        assert any("SLOW RUN" in a for a in mon.alerts)
+        assert any("EXPENSIVE RUN" in a for a in mon.alerts)
+        assert any("EMPTY" in a for a in mon.alerts)
+
+    def test_agent_monitor_alerts_on_high_tool_error_rate(self):
+        """AgentMonitor must flag a tool whose error rate crosses the threshold."""
+        from agent import AgentMonitor
+        mon = AgentMonitor(tool_error_rate_threshold=0.20)
+        mon.record_tool("search_migration_evidence", True, 100)
+        mon.record_tool("search_migration_evidence", False, 100)
+        assert any("HIGH ERROR RATE" in a for a in mon.alerts)
+
+
+# ===========================================================================
+# Gate : pass/fail criteria  
 # ===========================================================================
 
 class TestGate:
