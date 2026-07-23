@@ -28,6 +28,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+try:
+    import PyPDF2  # noqa: F401
+    _PYPDF2_OK = True
+except ImportError:
+    _PYPDF2_OK = False
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder, SentenceTransformer
 
@@ -116,7 +122,7 @@ def _split_text(text: str, size: int, overlap: int) -> list[str]:
 
 def build_parent_child_index(corpus_dir: str | Path) -> tuple[list[ParentChunk], list[ChildChunk]]:
     """
-    Reads every .txt/.md file in corpus_dir and produces:
+    Reads every .txt/.md/.pdf file in corpus_dir and produces:
       - parent chunks (larger context blocks, ~PARENT_CHUNK_SIZE chars)
       - child chunks (small blocks, ~CHILD_CHUNK_SIZE chars) each linked
         to the parent it was carved from via parent_id.
@@ -129,9 +135,23 @@ def build_parent_child_index(corpus_dir: str | Path) -> tuple[list[ParentChunk],
     children: list[ChildChunk] = []
 
     for path in sorted(corpus_dir.glob("**/*")):
-        if path.suffix.lower() not in (".txt", ".md") or not path.is_file():
+        if not path.is_file():
             continue
-        raw = path.read_text(encoding="utf-8", errors="ignore")
+        suffix = path.suffix.lower()
+        if suffix in (".txt", ".md"):
+            raw = path.read_text(encoding="utf-8", errors="ignore")
+        elif suffix == ".pdf" and _PYPDF2_OK:
+            try:
+                import PyPDF2
+                with open(path, "rb") as fh:
+                    reader = PyPDF2.PdfReader(fh)
+                    raw = "\n".join(
+                        page.extract_text() or "" for page in reader.pages
+                    )
+            except Exception:
+                continue
+        else:
+            continue
 
         for parent_text in _split_text(raw, PARENT_CHUNK_SIZE, overlap=0):
             parent_id = str(uuid.uuid4())

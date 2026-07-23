@@ -1,0 +1,25 @@
+{
+  "num_questions": 12,
+  "metrics": {
+    "context_recall": {
+      "baseline": 0.9583,
+      "final": 1.0,
+      "delta": 0.0417
+    },
+    "context_precision": {
+      "baseline": 0.8595,
+      "final": 1.0,
+      "delta": 0.1405
+    },
+    "faithfulness": {
+      "baseline": 0.9667,
+      "final": 0.8865,
+      "delta": -0.0802
+    },
+    "answer_relevancy": {
+      "baseline": 0.9547,
+      "final": 0.9581,
+      "delta": 0.0034
+    }
+  }
+}

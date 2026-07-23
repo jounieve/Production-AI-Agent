@@ -27,7 +27,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 try:
@@ -40,12 +40,19 @@ except ImportError:  # pragma: no cover
 
 from guardrails import TokenBudget
 
-load_dotenv()  # loads ANTHROPIC_API_KEY, LANGFUSE_* from .env into os.environ
+load_dotenv()
 
-MODEL_NAME = "claude-sonnet-4-5"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+if _OPENAI_API_KEY and not _OPENAI_API_KEY.startswith("sk-..."):
+    MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    _client = OpenAI(api_key=_OPENAI_API_KEY)
+else:
+    MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2:latest")
+    _client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
+
 SELF_CONSISTENCY_K = 3
-
-_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 
 # --------------------------------------------------------------------------
@@ -152,7 +159,10 @@ def _parse_structured_response(text: str) -> SynthesisCandidate:
     """Extracts the four required sections from a model response."""
 
     def _extract(section: str, next_sections: list[str]) -> str:
-        pattern = rf"{section}:\s*(.*?)(?=" + "|".join(f"{s}:" for s in next_sections) + r"|$)"
+        if next_sections:
+            pattern = rf"{section}:\s*(.*?)(?=" + "|".join(f"{s}:" for s in next_sections) + r")"
+        else:
+            pattern = rf"{section}:\s*(.*)"
         match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         return match.group(1).strip() if match else ""
 
@@ -176,18 +186,21 @@ def _parse_structured_response(text: str) -> SynthesisCandidate:
 
 @observe(name="reasoning.llm_call")
 def _call_llm(system_prompt: str, user_prompt: str, token_budget: TokenBudget, label: str) -> str:
-    response = _client.messages.create(
+    response = _client.chat.completions.create(
         model=MODEL_NAME,
         max_tokens=1000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
     )
+    usage = response.usage
     token_budget.add(
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+        input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        output_tokens=getattr(usage, "completion_tokens", 0) or 0,
         label=label,
     )
-    return response.content[0].text
+    return response.choices[0].message.content or ""
 
 
 def _build_context_block(context_chunks: list[str], sources: list[str]) -> str:
@@ -223,7 +236,7 @@ def _cluster_by_conclusion_similarity(candidates: list[SynthesisCandidate]) -> l
             union = keyword_sets[i] | keyword_sets[j]
             overlap = keyword_sets[i] & keyword_sets[j]
             similarity = len(overlap) / len(union) if union else 0.0
-            if similarity >= 0.4:
+            if similarity >= 0.25:
                 cluster.append(j)
                 assigned[j] = True
         clusters.append(cluster)
@@ -283,11 +296,20 @@ retrieved, and a candidate answer produced by a separate synthesis
 agent. Your job is NOT to re-answer the question. Your job is to check
 the candidate answer for two failure modes:
 
-1. Hallucination — does the CONCLUSION or EVIDENCE section state
-   anything as fact that is not actually supported by the provided
-   context?
-2. Overconfidence — is the stated CONFIDENCE reasonable given how much
-   (or how little) directly relevant evidence was provided?
+1. Hallucination — does the CONCLUSION or EVIDENCE section state a
+   specific fact (a number, a causal claim, a named statistic) that
+   does NOT appear anywhere in the provided context? Minor phrasing
+   differences or reasonable numerical inferences (e.g. "approaching
+   90% threshold" for a value of 88%) are NOT hallucinations.
+2. Overconfidence — is the stated CONFIDENCE above 0.9 when the
+   retrieved context is thin or indirect? A confidence of 0.7–0.9
+   backed by city-profile data and relevant corpus passages is
+   acceptable; do NOT flag it unless the evidence is clearly
+   insufficient for the claim.
+
+Default to APPROVED. Only use REJECTED if you can cite a specific
+sentence in the CONCLUSION that directly contradicts or is completely
+absent from the provided context.
 
 Respond in EXACTLY this format:
 

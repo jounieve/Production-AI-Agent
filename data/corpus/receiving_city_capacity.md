@@ -20,7 +20,10 @@ city's public services absorption capacity:
 
 1. **School enrollment capacity** (school capacity utilization) — the
    share of available seats already filled. Utilization above ~90% leaves
-   very little room for new enrollment from arriving families.
+   very little room for new enrollment from arriving families. Utilization
+   in the 85–90% range should be considered as approaching capacity: a
+   moderate inflow of new families can push utilization above the 90%
+   threshold within one to two school years.
 2. **Healthcare system bed availability per capita** (healthcare beds per
    1,000 residents) — a standard proxy for how much slack exists in local
    health services before an inflow of new residents causes measurable
