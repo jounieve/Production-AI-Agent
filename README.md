@@ -274,11 +274,13 @@ d'où `pytest` est lancé.
 - **`corpus/`** : 4 documents thématiques `.md` (`receiving_city_capacity.md`,
   `push_pull_factors.md`, `migration_corridors.md`,
   `climate_early_warning_and_policy.md`) rédigés pour couvrir précisément les
-  12 questions de `eval_questions.json`, plus un document `.md` supplémentaire
-  extrait du PDF source réel (`real_world_source_migrations_climatiques.md`)
-  conservé pour la profondeur/provenance. Le PDF original est gardé tel quel
-  mais **n'est pas lu par le retriever** (seuls `.txt`/`.md` le sont - voir
-  `data/README.md` pour la règle complète).
+  12 questions de `eval_questions.json`. 3 PDF de référence sont aussi présents
+  (`l-avenir-des-villes-face-aux-migrations-climatiques-2020-1.pdf`,
+  `Migration_and_Cities_An_Introduction.pdf`,
+  `Mateo Merchan Article City Migration.pdf`) mais **ne sont pas lus par le
+  retriever** (seuls `.txt`/`.md` le sont) et n'ont pas été convertis - leur
+  contenu n'est donc pas recherchable tant qu'ils ne sont pas convertis en
+  `.md` (voir `data/README.md` pour la règle complète).
 - **`cities/cities.json`** : données structurées (vacance de logement,
   croissance de l'emploi, capacité scolaire, lits d'hôpitaux, couverture
   transport) pour 6 villes.
@@ -296,7 +298,7 @@ Utilisateur
 L1 input filter (guardrails.py) ──── bloqué? ──► réponse "blocked_reason"
     │ ok
     ▼
-Boucle Claude + MCP (agent.py) ◄──► mcp_server.py (3 tools)
+Boucle LLM (OpenAI/Ollama) + MCP (agent.py) ◄──► mcp_server.py (3 tools)
     │  chaque appel d'outil passe par L4 (guardrails.py)
     ▼
 L1 filtre le contenu récupéré (défense injection indirecte)
@@ -324,16 +326,23 @@ justifier dans `REPORT.md`** (sections 4, 5, 6 du brief) :
 
 - **Sécurité** : les 5 tests d'injection + leur résultat avant/après L1+L4 →
   copiez la sortie de `pytest tests/test_security.py -v`.
-- **EU AI Act** : réfléchissez au tier de risque de cet agent (probablement
-  *limited* ou *minimal* - un agent de recherche/analyse, pas de décision
-  automatisée à fort impact sur des personnes) et justifiez avec les critères
-  précis de l'AI Act, pas juste l'affirmation du tier.
-- **Limitations** : au moins deux limitations concrètes existent déjà dans le
-  code lui-même à signaler honnêtement dans le rapport, par exemple :
+- **EU AI Act** : déjà résolu par du code exécutable, pas seulement par de la
+  prose - `guardrails.risk_tier(agent.AGENT_DESCRIPTION)` renvoie
+  `("LIMITED RISK", "Users must be informed...")`, testé dans
+  `tests/test_full_stack.py::TestLab4Production`. REPORT.md section 5 cite
+  déjà cet appel ; si vous changez `AGENT_DESCRIPTION` ou la description de
+  l'agent, relancez `python src/guardrails.py` pour vérifier que le tier ne
+  change pas de façon inattendue.
+- **Limitations** : plusieurs limitations concrètes existent déjà dans le
+  code et sont déjà décrites dans `REPORT.md` section 6, par exemple :
   - `compute_push_pull_index` utilise des scores de sévérité **constants**
     par type de push factor (`_PUSH_FACTOR_SEVERITY` dans `mcp_server.py`),
     pas des données live (indices de sécheresse, conflits...) - à citer comme
     limitation explicite plutôt que de la cacher.
+  - Avec `LLM_PROVIDER=ollama`, un modèle local comme `llama3.2:latest` ne
+    suit pas toujours la séquence d'outils "obligatoire" du prompt système
+    aussi fidèlement que `gpt-4o-mini` - observé en direct pendant les tests
+    de ce soir (voir REPORT.md section 6).
   - `benchmark.py` estime le coût avec un **split input/output supposé**
     (60/40), pas les tokens exacts par appel - autre limitation documentée
     dans le code lui-même (voir commentaire `ASSUMED_INPUT_FRACTION`).
@@ -347,7 +356,7 @@ doivent plus être présents si vous partez de cette version du dépôt :
 
 | Problème | Correction | Vérifié |
 |---|---|---|
-| `data/corpus/` ne contenait qu'un PDF, illisible par `retrieval.py` (qui ne lit que `.txt`/`.md`) | 4 documents `.md` thématiques créés + PDF extrait en `.md` complémentaire | ✅ chunking (32 parents/180 enfants) + recherche BM25 testés, retrouvent les bons passages |
+| `data/corpus/` ne contenait que des PDF, illisibles par `retrieval.py` (qui ne lit que `.txt`/`.md`) | 4 documents `.md` thématiques créés pour couvrir les 12 questions de `eval_questions.json` (les PDF restent non convertis, gardés en référence uniquement) | ✅ chunking (32 parents/180 enfants) + recherche BM25 testés, retrouvent les bons passages ; pipeline complet re-vérifié avec les vrais modèles (sentence-transformers + cross-encoder) |
 | `python -m pytest tests/test_security.py` échouait depuis la racine (`ModuleNotFoundError: guardrails`) | `conftest.py` déplacé de `src/` vers la racine du dépôt | ✅ les 6 tests passent depuis la racine |
 | `.env.example` absent | Créé avec toutes les clés nécessaires | ✅ |
 | `docs/architecture.md` vide | Rempli : diagramme + composants + 1 décision de design justifiée | ✅ |
@@ -367,49 +376,59 @@ doivent plus être présents si vous partez de cette version du dépôt :
 
 ## 7. Ce qu'il reste à faire avant de soumettre
 
-Rien de ce qui suit n'a pu être testé automatiquement (nécessite vos clés API
-personnelles) - **à faire par le groupe avant le rendu** :
+`python src/agent.py`, la suite de tests complète (51/51, y compris le
+pipeline de retrieval réel avec `sentence-transformers`), et
+`python eval/benchmark.py` ont déjà été exécutés avec succès avec
+`LLM_PROVIDER=ollama` (aucune clé API dans cet environnement) - voir les
+résultats réels dans `eval/benchmark_results.json` et section 3 de
+`REPORT.md`. Ce qui reste nécessite vos propres clés API :
 
-1. **Obtenir et renseigner vos clés dans `.env`** (`ANTHROPIC_API_KEY`,
-   `LANGFUSE_*`), puis lancer réellement :
+1. **Si vous soumettez avec OpenAI** : renseignez `OPENAI_API_KEY` dans
+   `.env` (`LLM_PROVIDER=openai` ou laissez vide, il sera détecté
+   automatiquement), puis relancez :
    ```bash
    python src/agent.py
    ```
-   et confirmer que ça produit bien une réponse complète (pas d'erreur, pas de
-   `blocked_reason` inattendu).
+   et confirmez que ça produit bien une réponse complète (pas d'erreur, pas de
+   `blocked_reason` inattendu). Les résultats déjà commités viennent d'un run
+   Ollama ; avec `gpt-4o-mini` le suivi des outils est plus fiable (voir
+   section 6 de `REPORT.md`) et les chiffres de coût seront non nuls.
 
-2. **Vérifier la trace Langfuse** : après un run de `agent.py`, ouvrez votre
+2. **Vérifier la trace Langfuse** (pas testable sans vos clés Langfuse) :
+   renseignez `LANGFUSE_*` dans `.env`, relancez `agent.py`, puis ouvrez votre
    dashboard Langfuse et confirmez qu'une trace apparaît avec au moins les
    spans suivants visibles séparément (exigé par le rubric, critère E) :
    `agent.run`, plusieurs `agent.tool_selection_llm_call`, plusieurs
    `agent.mcp_tool_call`, `retrieval.hybrid_search` (et ses sous-spans),
    `reasoning.self_consistency_synthesis`, `reasoning.critic_review`.
 
-3. **Lancer l'évaluation RAGAS et le benchmark**, puis **copier les résultats
-   dans `REPORT.md`** section 3 :
+3. **RAGAS** (nécessite `OPENAI_API_KEY` - `eval/ragas_eval.py` utilise
+   OpenAI comme juge LLM, pas configurable via `LLM_PROVIDER`) :
    ```bash
    python eval/ragas_eval.py
-   python eval/benchmark.py
    ```
    `eval/ragas_results.json` est déjà présent dans le dépôt (résultats d'une
-   exécution réelle, déjà recopiés dans `REPORT.md`). **`eval/benchmark_results.json`
-   n'existe pas encore** - lancez `python eval/benchmark.py` avant de soumettre
-   et recopiez ses vrais chiffres (coût, latence, distribution d'outils) dans
-   `REPORT.md` section 3 ; ne laissez pas les chiffres actuels sans les avoir
-   vérifiés contre une exécution réelle. Vérifiez aussi que `TokenBudget` a
-   bien été déclenché au moins une fois pendant les tests (`benchmark.py` le
-   fait automatiquement et l'affiche) - c'est une exigence explicite du
-   rubric (critère G).
+   exécution réelle antérieure, déjà recopiés dans `REPORT.md`) ; relancez
+   uniquement si vous voulez des chiffres plus récents.
 
-4. **Rédiger `REPORT.md`** en suivant exactement la structure imposée par
-   `docs/HW_brief(1).md` (7 sections, max 4 pages). Utilisez la section 5
-   ci-dessus comme point de départ pour les sections Sécurité, EU AI Act et
-   Limitations.
+   Si vous soumettez avec OpenAI, relancez aussi `python eval/benchmark.py`
+   pour obtenir des chiffres de coût/latence/distribution d'outils propres à
+   `gpt-4o-mini` (ceux actuellement dans `REPORT.md` viennent d'un run
+   Ollama, correctement étiqueté comme tel) et vérifiez que `TokenBudget` a
+   bien été déclenché au moins une fois (`benchmark.py` le fait
+   automatiquement et l'affiche) - exigence explicite du rubric (critère G).
 
-5. **Relire `docs/architecture.md`** après avoir tourné l'agent une première
-   fois, et l'ajuster si le comportement réel diffère du diagramme (le
-   rubric note explicitement "le diagramme doit correspondre exactement au
-   code qui tourne").
+4. **Relire `REPORT.md`** : déjà rédigé en suivant les 7 sections imposées par
+   `docs/HW_brief(1).md`, avec les vraies sorties de `risk_tier()` et du
+   benchmark Ollama déjà intégrées. Mettez à jour la section 3 si vous
+   relancez `benchmark.py`/`ragas_eval.py` avec vos propres clés (point 3
+   ci-dessus).
+
+5. ~~Relire `docs/architecture.md` après avoir tourné l'agent~~ - fait :
+   le diagramme a été mis à jour et vérifié contre le run réel de ce soir.
+   Si vous modifiez `agent.py`/`reasoning.py` avant de soumettre, revérifiez
+   qu'il correspond toujours (le rubric note explicitement "le diagramme
+   doit correspondre exactement au code qui tourne").
 
 6. **Remplir le tableau de disclosure IA** (section 7 du rapport) de façon
    honnête - soyez prêts à expliquer n'importe quelle fonction du code si on
@@ -420,5 +439,6 @@ personnelles) - **à faire par le groupe avant le rendu** :
    questions actuelles - voir `data/README.md` pour la règle à respecter
    (`.txt`/`.md` uniquement, un fichier par thème).
 
-8. **Vérifier le nom exact de fichier avant de pousser** : `REPORT.md` (pas
-   `Report.md`, pas `REPORT.MD`) - Git est sensible à la casse.
+8. ~~Vérifier le nom exact de fichier avant de pousser~~ - fait : le fichier
+   est bien `REPORT.md` (renommé depuis `REPORT.MD` via `git mv`, vérifiez
+   simplement que ce renommage est bien inclus dans votre commit final).

@@ -17,8 +17,7 @@ Current files:
 | `push_pull_factors.md` | Social networks as a pull factor, economic push factors, climate as a push factor |
 | `migration_corridors.md` | Definition of a migration corridor, early warning indicators |
 | `climate_early_warning_and_policy.md` | Data sources for climate migration early warning systems, proactive policy responses |
-| `real_world_source_migrations_climatiques.md` | Real-world French-language source article (extracted from the original PDF, kept for provenance/depth - supplementary, not required to answer `data/eval_questions.json`) |
-| `l-avenir-des-villes-face-aux-migrations-climatiques-2020-1.pdf` | The original PDF the extract above came from. Kept for reference only - **not read by the retriever** (wrong format). |
+| `l-avenir-des-villes-face-aux-migrations-climatiques-2020-1.pdf`, `Migration_and_Cities_An_Introduction.pdf`, `Mateo Merchan Article City Migration.pdf` | Source/reference PDFs kept for provenance. **Not read by the retriever** (wrong format) - none of them have been converted to `.md`/`.txt`, so none of their content is currently searchable. If you want their content in the RAG index, convert them first (see the `pdftotext` command above) and add a row here. |
 
 If you change topic or add new corpus documents, keep the same rule:
 plain `.md`/`.txt`, one topic per file, and update the table above.
